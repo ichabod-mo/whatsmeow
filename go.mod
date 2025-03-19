@@ -1,4 +1,4 @@
-module go.mau.fi/whatsmeow
+module github.com/ichabod-mo/whatsmeow
 
 go 1.23.0
 
@@ -21,3 +21,5 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 )
+
+replace github.com/ichabod-mo/whatsmeow => go.mau.fi/whatsmeow
