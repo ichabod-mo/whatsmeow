@@ -22,4 +22,4 @@ require (
 	golang.org/x/sys v0.31.0 // indirect
 )
 
-replace github.com/ichabod-mo/whatsmeow => go.mau.fi/whatsmeow
+replace go.mau.fi/whatsmeow => github.com/ichabod-mo/whatsmeow
