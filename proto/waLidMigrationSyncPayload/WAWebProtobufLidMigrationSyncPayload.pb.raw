@@ -3,6 +3,6 @@ DwaLidMigrationSyncPayload/WAWebProtobufLidMigrationSyncPayload.proto$WAWebProt
 LIDMigrationMapping
 pn (Rpn 
 assignedLid (RassignedLid
-	latestLid (R	latestLid"…
+	latestLid (R	latestLid"ï¿½
 LIDMigrationMappingSyncPayloadc
-pnToLidMappings (29.WAWebProtobufLidMigrationSyncPayload.LIDMigrationMappingRpnToLidMappingsB5Z3go.mau.fi/whatsmeow/proto/waLidMigrationSyncPayload
+pnToLidMappings (29.WAWebProtobufLidMigrationSyncPayload.LIDMigrationMappingRpnToLidMappingsB5Z3github.com/ichabod-mo/whatsmeow/proto/waLidMigrationSyncPayload

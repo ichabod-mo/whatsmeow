@@ -12,16 +12,16 @@ import (
 	"strconv"
 	"time"
 
-	waBinary "go.mau.fi/whatsmeow/binary"
-	armadillo "go.mau.fi/whatsmeow/proto"
-	"go.mau.fi/whatsmeow/proto/waArmadilloApplication"
-	"go.mau.fi/whatsmeow/proto/waConsumerApplication"
-	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/proto/waHistorySync"
-	"go.mau.fi/whatsmeow/proto/waMsgApplication"
-	"go.mau.fi/whatsmeow/proto/waMsgTransport"
-	"go.mau.fi/whatsmeow/proto/waWeb"
-	"go.mau.fi/whatsmeow/types"
+	waBinary "github.com/ichabod-mo/whatsmeow/binary"
+	armadillo "github.com/ichabod-mo/whatsmeow/proto"
+	"github.com/ichabod-mo/whatsmeow/proto/waArmadilloApplication"
+	"github.com/ichabod-mo/whatsmeow/proto/waConsumerApplication"
+	"github.com/ichabod-mo/whatsmeow/proto/waE2E"
+	"github.com/ichabod-mo/whatsmeow/proto/waHistorySync"
+	"github.com/ichabod-mo/whatsmeow/proto/waMsgApplication"
+	"github.com/ichabod-mo/whatsmeow/proto/waMsgTransport"
+	"github.com/ichabod-mo/whatsmeow/proto/waWeb"
+	"github.com/ichabod-mo/whatsmeow/types"
 )
 
 // QR is emitted after connecting when there's no session data in the device store.

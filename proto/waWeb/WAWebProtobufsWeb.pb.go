@@ -13,8 +13,8 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 
-	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
-	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
+	waCommon "github.com/ichabod-mo/whatsmeow/proto/waCommon"
+	waE2E "github.com/ichabod-mo/whatsmeow/proto/waE2E"
 
 	_ "embed"
 )

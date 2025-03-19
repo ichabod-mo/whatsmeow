@@ -14,11 +14,11 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	waBinary "go.mau.fi/whatsmeow/binary"
-	"go.mau.fi/whatsmeow/proto/waHistorySync"
-	"go.mau.fi/whatsmeow/proto/waVnameCert"
-	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
+	waBinary "github.com/ichabod-mo/whatsmeow/binary"
+	"github.com/ichabod-mo/whatsmeow/proto/waHistorySync"
+	"github.com/ichabod-mo/whatsmeow/proto/waVnameCert"
+	"github.com/ichabod-mo/whatsmeow/types"
+	"github.com/ichabod-mo/whatsmeow/types/events"
 )
 
 const (

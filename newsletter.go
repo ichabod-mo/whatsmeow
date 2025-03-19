@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	waBinary "go.mau.fi/whatsmeow/binary"
-	"go.mau.fi/whatsmeow/types"
+	waBinary "github.com/ichabod-mo/whatsmeow/binary"
+	"github.com/ichabod-mo/whatsmeow/types"
 )
 
 // NewsletterSubscribeLiveUpdates subscribes to receive live updates from a WhatsApp channel temporarily (for the duration returned).
