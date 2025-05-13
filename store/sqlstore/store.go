@@ -884,6 +884,7 @@ func (s *SQLStore) PutBufferedEvent(ctx context.Context, ciphertextHash [32]byte
 
 func (s *SQLStore) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	ctx = context.WithValue(ctx, dbutil.ContextKeyDoTxnCallerSkip, 2)
 	return s.db.DoTxn(ctx, nil, fn)
 =======
@@ -892,6 +893,10 @@ func (s *SQLStore) DoDecryptionTxn(ctx context.Context, fn func(context.Context)
 	//ctx = context.WithValue(ctx, dbutil.ContextKeyDoTxnCallerSkip, 2)
 	//return s.db.DoTxn(ctx, nil, fn)
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+	ctx = context.WithValue(ctx, dbutil.ContextKeyDoTxnCallerSkip, 2)
+	return s.db.DoTxn(ctx, nil, fn)
+>>>>>>> 99cbe71 (all: use contexts for database access)
 }
 
 func (s *SQLStore) ClearBufferedEventPlaintext(ctx context.Context, ciphertextHash [32]byte) error {

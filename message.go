@@ -313,6 +313,7 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 		var err error
 		if encType == "pkmsg" || encType == "msg" {
 <<<<<<< HEAD
+<<<<<<< HEAD
 			decrypted, ciphertextHash, err = cli.decryptDM(ctx, &child, senderEncryptionJID, encType == "pkmsg", info.Timestamp)
 			containsDirectMsg = true
 		} else if info.IsGroup && encType == "skmsg" {
@@ -323,6 +324,12 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 		} else if info.IsGroup && encType == "skmsg" {
 			decrypted, ciphertextHash, err = cli.decryptGroupMsg(&child, senderEncryptionJID, info.Chat, info.Timestamp)
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+			decrypted, ciphertextHash, err = cli.decryptDM(ctx, &child, senderEncryptionJID, encType == "pkmsg", info.Timestamp)
+			containsDirectMsg = true
+		} else if info.IsGroup && encType == "skmsg" {
+			decrypted, ciphertextHash, err = cli.decryptGroupMsg(ctx, &child, senderEncryptionJID, info.Chat, info.Timestamp)
+>>>>>>> 99cbe71 (all: use contexts for database access)
 		} else if encType == "msmsg" && info.Sender.IsBot() {
 			targetSenderJID := info.MsgMetaInfo.TargetSender
 			messageSecretSenderJID := targetSenderJID
@@ -368,7 +375,12 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 			cli.Log.Warnf("Error decrypting message from %s: %v", info.SourceString(), err)
 			logging.StdOutLogger.Warnf("Error decrypting message from %s: %v", info.SourceString(), err)
 			isUnavailable := encType == "skmsg" && !containsDirectMsg && errors.Is(err, signalerror.ErrNoSenderKeyForUser)
+<<<<<<< HEAD
 			if encType != "msmsg" {
+=======
+			// TODO figure out why @bot messages fail to decrypt
+			if info.Chat.Server != types.BotServer && encType != "msmsg" {
+>>>>>>> 99cbe71 (all: use contexts for database access)
 				go cli.sendRetryReceipt(context.WithoutCancel(ctx), node, info, isUnavailable)
 			}
 			cli.dispatchEvent(&events.UndecryptableMessage{
@@ -403,8 +415,12 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 			// Use the context passed to decryptMessages
 =======
 		if ciphertextHash != nil {
+<<<<<<< HEAD
 			ctx := context.TODO()
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+			// Use the context passed to decryptMessages
+>>>>>>> 99cbe71 (all: use contexts for database access)
 			err = cli.Store.EventBuffer.ClearBufferedEventPlaintext(ctx, *ciphertextHash)
 			if err != nil {
 				zerolog.Ctx(ctx).Err(err).
@@ -446,9 +462,13 @@ func (cli *Client) clearUntrustedIdentity(ctx context.Context, target types.JID)
 	}
 	go cli.dispatchEvent(&events.IdentityChange{JID: target, Timestamp: time.Now(), Implicit: true})
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return nil
 =======
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+	return nil
+>>>>>>> 99cbe71 (all: use contexts for database access)
 }
 
 var EventAlreadyProcessed = errors.New("event was already processed")
@@ -509,10 +529,14 @@ func (cli *Client) bufferedDecrypt(
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
 =======
 func (cli *Client) decryptDM(child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
+>>>>>>> 99cbe71 (all: use contexts for database access)
 	content, ok := child.Content.([]byte)
 	if !ok {
 		return nil, nil, fmt.Errorf("message content is not a byte slice")
@@ -553,13 +577,21 @@ func (cli *Client) decryptDM(child *waBinary.Node, from types.JID, isPreKey bool
 			return nil, nil, fmt.Errorf("failed to parse prekey message: %w", err)
 >>>>>>> f5aa7c1 (store: add persistent buffer for decryption to prevent double processing)
 		}
-		plaintext, ciphertextHash, err = cli.bufferedDecrypt(context.TODO(), content, serverTS, func(ctx context.Context) ([]byte, error) {
-			pt, innerErr := cipher.DecryptMessage(preKeyMsg)
+		plaintext, ciphertextHash, err = cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
+			pt, innerErr := cipher.DecryptMessage(decryptCtx, preKeyMsg)
 			if cli.AutoTrustIdentity && errors.Is(innerErr, signalerror.ErrUntrustedIdentity) {
 				cli.Log.Warnf("Got %v error while trying to decrypt prekey message from %s, clearing stored identity and retrying", innerErr, from)
+<<<<<<< HEAD
 				cli.clearUntrustedIdentity(from)
 				pt, innerErr = cipher.DecryptMessage(preKeyMsg)
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+				if innerErr = cli.clearUntrustedIdentity(decryptCtx, from); innerErr != nil {
+					innerErr = fmt.Errorf("failed to clear untrusted identity: %w", innerErr)
+					return nil, innerErr
+				}
+				pt, innerErr = cipher.DecryptMessage(decryptCtx, preKeyMsg)
+>>>>>>> 99cbe71 (all: use contexts for database access)
 			}
 			return pt, innerErr
 		})
@@ -572,12 +604,17 @@ func (cli *Client) decryptDM(child *waBinary.Node, from types.JID, isPreKey bool
 			return nil, nil, fmt.Errorf("failed to parse normal message: %w", err)
 		}
 <<<<<<< HEAD
+<<<<<<< HEAD
 		plaintext, ciphertextHash, err = cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
 			return cipher.Decrypt(decryptCtx, msg)
 =======
 		plaintext, ciphertextHash, err = cli.bufferedDecrypt(context.TODO(), content, serverTS, func(ctx context.Context) ([]byte, error) {
 			return cipher.Decrypt(msg)
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+		plaintext, ciphertextHash, err = cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
+			return cipher.Decrypt(decryptCtx, msg)
+>>>>>>> 99cbe71 (all: use contexts for database access)
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decrypt normal message: %w", err)
@@ -598,8 +635,12 @@ func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, fr
 	return plaintext, &ciphertextHash, nil
 }
 
+<<<<<<< HEAD
 func (cli *Client) decryptGroupMsg(child *waBinary.Node, from types.JID, chat types.JID, serverTS time.Time) ([]byte, *[32]byte, error) {
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, from types.JID, chat types.JID, serverTS time.Time) ([]byte, *[32]byte, error) {
+>>>>>>> 99cbe71 (all: use contexts for database access)
 	content, ok := child.Content.([]byte)
 	if !ok {
 		return nil, nil, fmt.Errorf("message content is not a byte slice")
@@ -622,8 +663,8 @@ func (cli *Client) decryptGroupMsg(child *waBinary.Node, from types.JID, chat ty
 =======
 		return nil, nil, fmt.Errorf("failed to parse group message: %w", err)
 	}
-	plaintext, ciphertextHash, err := cli.bufferedDecrypt(context.TODO(), content, serverTS, func(ctx context.Context) ([]byte, error) {
-		return cipher.Decrypt(msg)
+	plaintext, ciphertextHash, err := cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
+		return cipher.Decrypt(decryptCtx, msg)
 	})
 	if err != nil {
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
@@ -898,8 +939,16 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 	}
 	if len(secrets) > 0 {
 		cli.Log.Debugf("Storing %d message secret keys in history sync", len(secrets))
+<<<<<<< HEAD
 		logging.StdOutLogger.Debugf("Storing %d message secret keys in history sync", len(secrets))
+<<<<<<< HEAD
 		err := cli.Store.MsgSecrets.PutMessageSecrets(ctx, secrets)
+=======
+		err := cli.Store.MsgSecrets.PutMessageSecrets(secrets)
+=======
+		err := cli.Store.MsgSecrets.PutMessageSecrets(ctx, secrets)
+>>>>>>> d9bdff4 (all: use contexts for database access)
+>>>>>>> 99cbe71 (all: use contexts for database access)
 		if err != nil {
 			cli.Log.Errorf("Failed to store message secret keys in history sync: %v", err)
 			logging.StdOutLogger.Errorf("Failed to store message secret keys in history sync: %v", err)
@@ -921,9 +970,20 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 	}
 }
 
+<<<<<<< HEAD
 func (cli *Client) handleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) {
 	logging.StdOutLogger.Debugf("handleDecryptedMessage %s", msg.String())
 	cli.processProtocolParts(ctx, info, msg)
+=======
+<<<<<<< HEAD
+func (cli *Client) handleDecryptedMessage(info *types.MessageInfo, msg *waE2E.Message, retryCount int) {
+	logging.StdOutLogger.Debugf("handleDecryptedMessage %s", msg.String())
+	cli.processProtocolParts(info, msg)
+=======
+func (cli *Client) handleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) {
+	cli.processProtocolParts(ctx, info, msg)
+>>>>>>> d9bdff4 (all: use contexts for database access)
+>>>>>>> 99cbe71 (all: use contexts for database access)
 	evt := &events.Message{Info: *info, RawMessage: msg, RetryCount: retryCount}
 	cli.dispatchEvent(evt.UnwrapRaw())
 }

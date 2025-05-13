@@ -292,6 +292,7 @@ func (int *DangerousInternalClient) BufferedDecrypt(ctx context.Context, ciphert
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 func (int *DangerousInternalClient) DecryptDM(ctx context.Context, child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
 	return int.c.decryptDM(ctx, child, from, isPreKey, serverTS)
 =======
@@ -308,6 +309,16 @@ func (int *DangerousInternalClient) DecryptGroupMsg(ctx context.Context, child *
 	return int.c.decryptGroupMsg(ctx, child, from, chat, serverTS)
 }
 
+=======
+func (int *DangerousInternalClient) DecryptDM(ctx context.Context, child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
+	return int.c.decryptDM(ctx, child, from, isPreKey, serverTS)
+}
+
+func (int *DangerousInternalClient) DecryptGroupMsg(ctx context.Context, child *waBinary.Node, from types.JID, chat types.JID, serverTS time.Time) ([]byte, *[32]byte, error) {
+	return int.c.decryptGroupMsg(ctx, child, from, chat, serverTS)
+}
+
+>>>>>>> 99cbe71 (all: use contexts for database access)
 func (int *DangerousInternalClient) HandleSenderKeyDistributionMessage(ctx context.Context, chat, from types.JID, axolotlSKDM []byte) {
 	int.c.handleSenderKeyDistributionMessage(ctx, chat, from, axolotlSKDM)
 }

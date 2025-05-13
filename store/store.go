@@ -125,6 +125,7 @@ type PrivacyToken struct {
 type PrivacyTokenStore interface {
 	PutPrivacyTokens(ctx context.Context, tokens ...PrivacyToken) error
 	GetPrivacyToken(ctx context.Context, user types.JID) (*PrivacyToken, error)
+<<<<<<< HEAD
 }
 
 type BufferedEvent struct {
@@ -139,6 +140,8 @@ type EventBuffer interface {
 	DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error
 	ClearBufferedEventPlaintext(ctx context.Context, ciphertextHash [32]byte) error
 	DeleteOldBufferedHashes(ctx context.Context) error
+=======
+>>>>>>> 99cbe71 (all: use contexts for database access)
 }
 
 type BufferedEvent struct {
