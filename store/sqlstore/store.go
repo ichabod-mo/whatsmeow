@@ -855,9 +855,12 @@ const (
 	clearBufferedEventPlaintextQuery = `
 		UPDATE whatsmeow_event_buffer SET plaintext = NULL WHERE our_jid = $1 AND ciphertext_hash = $2
 	`
+<<<<<<< HEAD
 	deleteOldBufferedHashesQuery = `
 		DELETE FROM whatsmeow_event_buffer WHERE insert_timestamp < $1
 	`
+=======
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 )
 
 func (s *SQLStore) GetBufferedEvent(ctx context.Context, ciphertextHash [32]byte) (*store.BufferedEvent, error) {
@@ -880,14 +883,22 @@ func (s *SQLStore) PutBufferedEvent(ctx context.Context, ciphertextHash [32]byte
 }
 
 func (s *SQLStore) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
+<<<<<<< HEAD
 	ctx = context.WithValue(ctx, dbutil.ContextKeyDoTxnCallerSkip, 2)
 	return s.db.DoTxn(ctx, nil, fn)
+=======
+	return fn(ctx)
+	// TODO actually use transaction once libsignal-protocol-go passes them through
+	//ctx = context.WithValue(ctx, dbutil.ContextKeyDoTxnCallerSkip, 2)
+	//return s.db.DoTxn(ctx, nil, fn)
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 }
 
 func (s *SQLStore) ClearBufferedEventPlaintext(ctx context.Context, ciphertextHash [32]byte) error {
 	_, err := s.db.Exec(ctx, clearBufferedEventPlaintextQuery, s.JID, ciphertextHash[:])
 	return err
 }
+<<<<<<< HEAD
 
 func (s *SQLStore) DeleteOldBufferedHashes(ctx context.Context) error {
 	// The WhatsApp servers only buffer events for 14 days,
@@ -895,3 +906,5 @@ func (s *SQLStore) DeleteOldBufferedHashes(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, deleteOldBufferedHashesQuery, time.Now().Add(-14*24*time.Hour).UnixMilli())
 	return err
 }
+=======
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)

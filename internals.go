@@ -291,8 +291,17 @@ func (int *DangerousInternalClient) BufferedDecrypt(ctx context.Context, ciphert
 	return int.c.bufferedDecrypt(ctx, ciphertext, serverTimestamp, decrypt)
 }
 
+<<<<<<< HEAD
 func (int *DangerousInternalClient) DecryptDM(ctx context.Context, child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
 	return int.c.decryptDM(ctx, child, from, isPreKey, serverTS)
+=======
+func (int *DangerousInternalClient) DecryptDM(child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
+	return int.c.decryptDM(child, from, isPreKey, serverTS)
+}
+
+func (int *DangerousInternalClient) DecryptGroupMsg(child *waBinary.Node, from types.JID, chat types.JID, serverTS time.Time) ([]byte, *[32]byte, error) {
+	return int.c.decryptGroupMsg(child, from, chat, serverTS)
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 }
 
 func (int *DangerousInternalClient) DecryptGroupMsg(ctx context.Context, child *waBinary.Node, from types.JID, chat types.JID, serverTS time.Time) ([]byte, *[32]byte, error) {

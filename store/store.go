@@ -141,6 +141,19 @@ type EventBuffer interface {
 	DeleteOldBufferedHashes(ctx context.Context) error
 }
 
+type BufferedEvent struct {
+	Plaintext  []byte
+	InsertTime time.Time
+	ServerTime time.Time
+}
+
+type EventBuffer interface {
+	GetBufferedEvent(ctx context.Context, ciphertextHash [32]byte) (*BufferedEvent, error)
+	PutBufferedEvent(ctx context.Context, ciphertextHash [32]byte, plaintext []byte, serverTimestamp time.Time) error
+	DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error
+	ClearBufferedEventPlaintext(ctx context.Context, ciphertextHash [32]byte) error
+}
+
 type LIDMapping struct {
 	LID types.JID
 	PN  types.JID

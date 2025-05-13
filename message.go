@@ -312,10 +312,17 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 		var ciphertextHash *[32]byte
 		var err error
 		if encType == "pkmsg" || encType == "msg" {
+<<<<<<< HEAD
 			decrypted, ciphertextHash, err = cli.decryptDM(ctx, &child, senderEncryptionJID, encType == "pkmsg", info.Timestamp)
 			containsDirectMsg = true
 		} else if info.IsGroup && encType == "skmsg" {
 			decrypted, ciphertextHash, err = cli.decryptGroupMsg(ctx, &child, senderEncryptionJID, info.Chat, info.Timestamp)
+=======
+			decrypted, ciphertextHash, err = cli.decryptDM(&child, senderEncryptionJID, encType == "pkmsg", info.Timestamp)
+			containsDirectMsg = true
+		} else if info.IsGroup && encType == "skmsg" {
+			decrypted, ciphertextHash, err = cli.decryptGroupMsg(&child, senderEncryptionJID, info.Chat, info.Timestamp)
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 		} else if encType == "msmsg" && info.Sender.IsBot() {
 			targetSenderJID := info.MsgMetaInfo.TargetSender
 			messageSecretSenderJID := targetSenderJID
@@ -391,8 +398,13 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 			cli.Log.Warnf("Unknown version %d in decrypted message from %s", ag.Int("v"), info.SourceString())
 			logging.StdOutLogger.Warnf("Unknown version %d in decrypted message from %s", ag.Int("v"), info.SourceString())
 		}
+<<<<<<< HEAD
 		if ciphertextHash != nil && cli.EnableDecryptedEventBuffer {
 			// Use the context passed to decryptMessages
+=======
+		if ciphertextHash != nil {
+			ctx := context.TODO()
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 			err = cli.Store.EventBuffer.ClearBufferedEventPlaintext(ctx, *ciphertextHash)
 			if err != nil {
 				zerolog.Ctx(ctx).Err(err).
@@ -403,6 +415,7 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 					Hex("ciphertext_hash", ciphertextHash[:]).
 					Msg("Deleted event plaintext from buffer")
 			}
+<<<<<<< HEAD
 
 			if time.Since(cli.lastDecryptedBufferClear) > 12*time.Hour {
 				cli.lastDecryptedBufferClear = time.Now()
@@ -413,6 +426,8 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 					}
 				}()
 			}
+=======
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 		}
 	}
 	if handled {
@@ -430,7 +445,10 @@ func (cli *Client) clearUntrustedIdentity(ctx context.Context, target types.JID)
 		return fmt.Errorf("failed to delete session: %w", err)
 	}
 	go cli.dispatchEvent(&events.IdentityChange{JID: target, Timestamp: time.Now(), Implicit: true})
+<<<<<<< HEAD
 	return nil
+=======
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 }
 
 var EventAlreadyProcessed = errors.New("event was already processed")
@@ -441,10 +459,13 @@ func (cli *Client) bufferedDecrypt(
 	serverTimestamp time.Time,
 	decrypt func(context.Context) ([]byte, error),
 ) (plaintext []byte, ciphertextHash [32]byte, err error) {
+<<<<<<< HEAD
 	if !cli.EnableDecryptedEventBuffer {
 		plaintext, err = decrypt(ctx)
 		return
 	}
+=======
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 	ciphertextHash = sha256.Sum256(ciphertext)
 	var buf *store.BufferedEvent
 	buf, err = cli.Store.EventBuffer.GetBufferedEvent(ctx, ciphertextHash)
@@ -487,7 +508,11 @@ func (cli *Client) bufferedDecrypt(
 	return
 }
 
+<<<<<<< HEAD
 func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
+=======
+func (cli *Client) decryptDM(child *waBinary.Node, from types.JID, isPreKey bool, serverTS time.Time) ([]byte, *[32]byte, error) {
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 	content, ok := child.Content.([]byte)
 	if !ok {
 		return nil, nil, fmt.Errorf("message content is not a byte slice")
@@ -500,6 +525,7 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
 	if isPreKey {
 		preKeyMsg, err := protocol.NewPreKeySignalMessageFromBytes(content, pbSerializer.PreKeySignalMessage, pbSerializer.SignalMessage)
 		if err != nil {
+<<<<<<< HEAD
 			return nil, nil, fmt.Errorf("failed to parse prekey message: %w", err)
 		}
 		plaintext, ciphertextHash, err = cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
@@ -513,6 +539,27 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
 					return nil, innerErr
 				}
 				pt, innerErr = cipher.DecryptMessage(decryptCtx, preKeyMsg)
+=======
+<<<<<<< HEAD
+			return nil, fmt.Errorf("failed to parse prekey message: %w", err)
+		}
+		plaintext, _, err = cipher.DecryptMessageReturnKey(preKeyMsg)
+		if cli.AutoTrustIdentity && errors.Is(err, signalerror.ErrUntrustedIdentity) {
+			cli.Log.Warnf("Got %v error while trying to decrypt prekey message from %s, clearing stored identity and retrying", err, from)
+			logging.StdOutLogger.Warnf("Got %v error while trying to decrypt prekey message from %s, clearing stored identity and retrying", err, from)
+			cli.clearUntrustedIdentity(from)
+			plaintext, _, err = cipher.DecryptMessageReturnKey(preKeyMsg)
+=======
+			return nil, nil, fmt.Errorf("failed to parse prekey message: %w", err)
+>>>>>>> f5aa7c1 (store: add persistent buffer for decryption to prevent double processing)
+		}
+		plaintext, ciphertextHash, err = cli.bufferedDecrypt(context.TODO(), content, serverTS, func(ctx context.Context) ([]byte, error) {
+			pt, innerErr := cipher.DecryptMessage(preKeyMsg)
+			if cli.AutoTrustIdentity && errors.Is(innerErr, signalerror.ErrUntrustedIdentity) {
+				cli.Log.Warnf("Got %v error while trying to decrypt prekey message from %s, clearing stored identity and retrying", innerErr, from)
+				cli.clearUntrustedIdentity(from)
+				pt, innerErr = cipher.DecryptMessage(preKeyMsg)
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 			}
 			return pt, innerErr
 		})
@@ -524,8 +571,13 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to parse normal message: %w", err)
 		}
+<<<<<<< HEAD
 		plaintext, ciphertextHash, err = cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
 			return cipher.Decrypt(decryptCtx, msg)
+=======
+		plaintext, ciphertextHash, err = cli.bufferedDecrypt(context.TODO(), content, serverTS, func(ctx context.Context) ([]byte, error) {
+			return cipher.Decrypt(msg)
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decrypt normal message: %w", err)
@@ -536,11 +588,18 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to unpad message: %w", err)
 	}
+<<<<<<< HEAD
 	logging.StdOutLogger.Debugf("Decrypted message: %s", plaintext)
 	return plaintext, &ciphertextHash, nil
 }
 
 func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, from types.JID, chat types.JID, serverTS time.Time) ([]byte, *[32]byte, error) {
+=======
+	return plaintext, &ciphertextHash, nil
+}
+
+func (cli *Client) decryptGroupMsg(child *waBinary.Node, from types.JID, chat types.JID, serverTS time.Time) ([]byte, *[32]byte, error) {
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 	content, ok := child.Content.([]byte)
 	if !ok {
 		return nil, nil, fmt.Errorf("message content is not a byte slice")
@@ -551,6 +610,7 @@ func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, fr
 	cipher := groups.NewGroupCipher(builder, senderKeyName, cli.Store)
 	msg, err := protocol.NewSenderKeyMessageFromBytes(content, pbSerializer.SenderKeyMessage)
 	if err != nil {
+<<<<<<< HEAD
 		logging.StdOutLogger.Errorf("failed to parse group message: %w", err)
 		return nil, nil, fmt.Errorf("failed to parse group message: %w", err)
 	}
@@ -559,13 +619,24 @@ func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, fr
 	})
 	if err != nil {
 		logging.StdOutLogger.Errorf("failed to decrypt group message: %w", err)
+=======
+		return nil, nil, fmt.Errorf("failed to parse group message: %w", err)
+	}
+	plaintext, ciphertextHash, err := cli.bufferedDecrypt(context.TODO(), content, serverTS, func(ctx context.Context) ([]byte, error) {
+		return cipher.Decrypt(msg)
+	})
+	if err != nil {
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 		return nil, nil, fmt.Errorf("failed to decrypt group message: %w", err)
 	}
 	plaintext, err = unpadMessage(plaintext, child.AttrGetter().Int("v"))
 	if err != nil {
 		return nil, nil, err
 	}
+<<<<<<< HEAD
 	logging.StdOutLogger.Debugf("decryptGroupMsg message: %s", plaintext)
+=======
+>>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
 	return plaintext, &ciphertextHash, nil
 }
 
