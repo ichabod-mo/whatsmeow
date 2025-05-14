@@ -369,18 +369,25 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 
 		if errors.Is(err, EventAlreadyProcessed) {
 			cli.Log.Debugf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
+<<<<<<< HEAD
 			logging.StdOutLogger.Debugf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
+=======
+>>>>>>> 9b1f3e0 (message: stop processing on EventAlreadyProcessed errors)
 			return
 		} else if err != nil {
 			cli.Log.Warnf("Error decrypting message from %s: %v", info.SourceString(), err)
 			logging.StdOutLogger.Warnf("Error decrypting message from %s: %v", info.SourceString(), err)
 			isUnavailable := encType == "skmsg" && !containsDirectMsg && errors.Is(err, signalerror.ErrNoSenderKeyForUser)
 <<<<<<< HEAD
+<<<<<<< HEAD
 			if encType != "msmsg" {
 =======
 			// TODO figure out why @bot messages fail to decrypt
 			if info.Chat.Server != types.BotServer && encType != "msmsg" {
 >>>>>>> 99cbe71 (all: use contexts for database access)
+=======
+			if encType != "msmsg" {
+>>>>>>> 9b1f3e0 (message: stop processing on EventAlreadyProcessed errors)
 				go cli.sendRetryReceipt(context.WithoutCancel(ctx), node, info, isUnavailable)
 			}
 			cli.dispatchEvent(&events.UndecryptableMessage{
