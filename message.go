@@ -410,10 +410,10 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 			cli.Log.Warnf("Unknown version %d in decrypted message from %s", ag.Int("v"), info.SourceString())
 			logging.StdOutLogger.Warnf("Unknown version %d in decrypted message from %s", ag.Int("v"), info.SourceString())
 		}
-<<<<<<< HEAD
+
 		if ciphertextHash != nil && cli.EnableDecryptedEventBuffer {
 			// Use the context passed to decryptMessages
-=======
+
 		if ciphertextHash != nil {
 <<<<<<< HEAD
 			ctx := context.TODO()
@@ -480,12 +480,18 @@ func (cli *Client) bufferedDecrypt(
 	decrypt func(context.Context) ([]byte, error),
 ) (plaintext []byte, ciphertextHash [32]byte, err error) {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 27ac0d8 (client: move option to disable event buffer to client)
 	if !cli.EnableDecryptedEventBuffer {
 		plaintext, err = decrypt(ctx)
 		return
 	}
+<<<<<<< HEAD
 =======
 >>>>>>> 0f7a63a (store: add persistent buffer for decryption to prevent double processing)
+=======
+>>>>>>> 27ac0d8 (client: move option to disable event buffer to client)
 	ciphertextHash = sha256.Sum256(ciphertext)
 	var buf *store.BufferedEvent
 	buf, err = cli.Store.EventBuffer.GetBufferedEvent(ctx, ciphertextHash)
