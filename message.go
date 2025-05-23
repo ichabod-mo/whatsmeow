@@ -289,12 +289,14 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 			cli.migrateSessionStore(ctx, info.Sender, info.SenderAlt)
 		} else if lid, err := cli.Store.LIDs.GetLIDForPN(ctx, info.Sender); err != nil {
 			cli.Log.Errorf("Failed to get LID for %s: %v", info.Sender, err)
+			logging.StdOutLogger.Warnf("Failed to get LID for %s: %v", info.Sender, err)
 		} else if !lid.IsEmpty() {
 			cli.migrateSessionStore(ctx, info.Sender, lid)
 			senderEncryptionJID = lid
 			info.SenderAlt = lid
 		} else {
 			cli.Log.Warnf("No LID found for %s", info.Sender)
+			logging.StdOutLogger.Warnf("No LID found for %s", info.Sender)
 		}
 	}
 	for _, child := range children {
@@ -353,6 +355,7 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 
 		if errors.Is(err, EventAlreadyProcessed) {
 			cli.Log.Debugf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
+			logging.StdOutLogger.Debugf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
 			return
 		} else if err != nil {
 			cli.Log.Warnf("Error decrypting message from %s: %v", info.SourceString(), err)
@@ -503,8 +506,10 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
 			pt, innerErr := cipher.DecryptMessage(decryptCtx, preKeyMsg)
 			if cli.AutoTrustIdentity && errors.Is(innerErr, signalerror.ErrUntrustedIdentity) {
 				cli.Log.Warnf("Got %v error while trying to decrypt prekey message from %s, clearing stored identity and retrying", innerErr, from)
+				logging.StdOutLogger.Warnf("Got %v error while trying to decrypt prekey message from %s, clearing stored identity and retrying", innerErr, from)
 				if innerErr = cli.clearUntrustedIdentity(decryptCtx, from); innerErr != nil {
 					innerErr = fmt.Errorf("failed to clear untrusted identity: %w", innerErr)
+					logging.StdOutLogger.Warnf("Failed to clear untrusted identity: %v", innerErr)
 					return nil, innerErr
 				}
 				pt, innerErr = cipher.DecryptMessage(decryptCtx, preKeyMsg)
@@ -531,6 +536,7 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to unpad message: %w", err)
 	}
+	logging.StdOutLogger.Debugf("Decrypted message: %s", plaintext)
 	return plaintext, &ciphertextHash, nil
 }
 
@@ -545,18 +551,21 @@ func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, fr
 	cipher := groups.NewGroupCipher(builder, senderKeyName, cli.Store)
 	msg, err := protocol.NewSenderKeyMessageFromBytes(content, pbSerializer.SenderKeyMessage)
 	if err != nil {
+		logging.StdOutLogger.Errorf("failed to parse group message: %w", err)
 		return nil, nil, fmt.Errorf("failed to parse group message: %w", err)
 	}
 	plaintext, ciphertextHash, err := cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
 		return cipher.Decrypt(decryptCtx, msg)
 	})
 	if err != nil {
+		logging.StdOutLogger.Errorf("failed to decrypt group message: %w", err)
 		return nil, nil, fmt.Errorf("failed to decrypt group message: %w", err)
 	}
 	plaintext, err = unpadMessage(plaintext, child.AttrGetter().Int("v"))
 	if err != nil {
 		return nil, nil, err
 	}
+	logging.StdOutLogger.Debugf("decryptGroupMsg message: %s", plaintext)
 	return plaintext, &ciphertextHash, nil
 }
 
@@ -648,6 +657,7 @@ func (cli *Client) handleHistorySyncNotification(ctx context.Context, notif *waE
 			Data: &historySync,
 		})
 	}
+	logging.StdOutLogger.Debugf("Received history sync (%s)", historySync.String())
 }
 
 func (cli *Client) handleAppStateSyncKeyShare(ctx context.Context, keys *waE2E.AppStateSyncKeyShare) {
@@ -817,11 +827,14 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 	}
 	if len(secrets) > 0 {
 		cli.Log.Debugf("Storing %d message secret keys in history sync", len(secrets))
+		logging.StdOutLogger.Debugf("Storing %d message secret keys in history sync", len(secrets))
 		err := cli.Store.MsgSecrets.PutMessageSecrets(ctx, secrets)
 		if err != nil {
 			cli.Log.Errorf("Failed to store message secret keys in history sync: %v", err)
+			logging.StdOutLogger.Errorf("Failed to store message secret keys in history sync: %v", err)
 		} else {
 			cli.Log.Infof("Stored %d message secret keys from history sync", len(secrets))
+			logging.StdOutLogger.Infof("Stored %d message secret keys from history sync", len(secrets))
 		}
 	}
 	if len(privacyTokens) > 0 {
@@ -829,13 +842,16 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 		err := cli.Store.PrivacyTokens.PutPrivacyTokens(ctx, privacyTokens...)
 		if err != nil {
 			cli.Log.Errorf("Failed to store privacy tokens in history sync: %v", err)
+			logging.StdOutLogger.Errorf("Failed to store privacy tokens in history sync: %v", err)
 		} else {
 			cli.Log.Infof("Stored %d privacy tokens from history sync", len(privacyTokens))
+			logging.StdOutLogger.Infof("Stored %d privacy tokens from history sync", len(privacyTokens))
 		}
 	}
 }
 
 func (cli *Client) handleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) {
+	logging.StdOutLogger.Debugf("handleDecryptedMessage %s", msg.String())
 	cli.processProtocolParts(ctx, info, msg)
 	evt := &events.Message{Info: *info, RawMessage: msg, RetryCount: retryCount}
 	cli.dispatchEvent(evt.UnwrapRaw())
