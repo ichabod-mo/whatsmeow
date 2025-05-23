@@ -953,12 +953,16 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 	if len(secrets) > 0 {
 		cli.Log.Debugf("Storing %d message secret keys in history sync", len(secrets))
 <<<<<<< HEAD
+<<<<<<< HEAD
 		logging.StdOutLogger.Debugf("Storing %d message secret keys in history sync", len(secrets))
 <<<<<<< HEAD
 		err := cli.Store.MsgSecrets.PutMessageSecrets(ctx, secrets)
 =======
 		err := cli.Store.MsgSecrets.PutMessageSecrets(secrets)
 =======
+=======
+		logging.StdOutLogger.Debugf("Storing %d message secret keys in history sync", len(secrets))
+>>>>>>> a982d3c (feat:增加历史消息同步日志，和消息解密日志)
 		err := cli.Store.MsgSecrets.PutMessageSecrets(ctx, secrets)
 >>>>>>> d9bdff4 (all: use contexts for database access)
 >>>>>>> 99cbe71 (all: use contexts for database access)
@@ -994,6 +998,7 @@ func (cli *Client) handleDecryptedMessage(info *types.MessageInfo, msg *waE2E.Me
 	cli.processProtocolParts(info, msg)
 =======
 func (cli *Client) handleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) {
+	logging.StdOutLogger.Debugf("handleDecryptedMessage %s", msg.String())
 	cli.processProtocolParts(ctx, info, msg)
 >>>>>>> d9bdff4 (all: use contexts for database access)
 >>>>>>> 99cbe71 (all: use contexts for database access)
