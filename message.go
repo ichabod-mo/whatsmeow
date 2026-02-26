@@ -983,13 +983,17 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 			cli.Log.Infof("Stored %d message secret keys from history sync", len(secrets))
 		}
 	}
-	if len(privacyTokens) > 0 {
-		cli.Log.Debugf("Storing %d privacy tokens in history sync", len(privacyTokens))
-		err := cli.Store.PrivacyTokens.PutPrivacyTokens(ctx, privacyTokens...)
+	batchSize :=900
+	for i := 0; i < len(privacyTokens); i += batchSize {
+		end := i + batchSize
+		if end > len(privacyTokens) {
+			end = len(privacyTokens)
+		}
+		err := cli.Store.PrivacyTokens.PutPrivacyTokens(ctx, privacyTokens[i:end]...)
 		if err != nil {
-			cli.Log.Errorf("Failed to store privacy tokens in history sync: %v", err)
+			cli.Log.Errorf("Failed to store privacy tokens in history sync batch %d: %v", i/batchSize, err)
 		} else {
-			cli.Log.Infof("Stored %d privacy tokens from history sync", len(privacyTokens))
+			cli.Log.Infof("Stored privacy tokens batch %d from history sync", i/batchSize)
 		}
 	}
 }
