@@ -1175,9 +1175,9 @@ func (cli *Client) prepareMessageNode(
 		"to":   to,
 	}
 
-	if participants[0].Server == types.HiddenUserServer {
-		attrs["addressing_mode"] = "lid"
-	}
+	// if participants[0].Server == types.HiddenUserServer {
+	// 	attrs["addressing_mode"] = "lid"
+	// }
 
 	// TODO this is a very hacky hack for announcement group messages, why is it pn anyway?
 	if extraParams.addressingMode != "" {
