@@ -498,7 +498,13 @@ func (cli *Client) BuildMessageKey(chat, sender types.JID, id types.MessageID) *
 	if !sender.IsEmpty() && sender.User != cli.getOwnID().User && sender.User != cli.getOwnLID().User {
 		key.FromMe = proto.Bool(false)
 		if chat.Server != types.DefaultUserServer && chat.Server != types.HiddenUserServer && chat.Server != types.MessengerServer {
-			key.Participant = proto.String(sender.ToNonAD().String())
+			// 发送消息心情时Participant不需要设备标识 比如152652381945916:6@lid 需要改变为152652381945916@lid 否则会导致某些平台无法显示
+			index := strings.Index(sender.User, ":")
+			if index != -1 {
+				key.Participant = proto.String(sender.User[:index] + "@" + sender.Server)
+			} else {
+				key.Participant = proto.String(sender.User + "@" + sender.Server)
+			}
 		}
 	}
 	return key
