@@ -323,29 +323,30 @@ func (cli *Client) SendMessage(ctx context.Context, to types.JID, message *waE2E
 		resp.DebugTimings.GetParticipants = time.Since(start)
 	} else if to.Server == types.HiddenUserServer {
 		ownID = cli.getOwnLID()
-	} else if to.Server == types.DefaultUserServer && cli.Store.LIDMigrationTimestamp > 0 && !req.Peer {
-		start := time.Now()
-		var toLID types.JID
-		toLID, err = cli.Store.LIDs.GetLIDForPN(ctx, to)
-		if err != nil {
-			err = fmt.Errorf("failed to get LID for PN %s: %w", to, err)
-			return
-		} else if toLID.IsEmpty() {
-			var info map[types.JID]types.UserInfo
-			info, err = cli.GetUserInfo(ctx, []types.JID{to})
-			if err != nil {
-				err = fmt.Errorf("failed to get user info for %s to fill LID cache: %w", to, err)
-				return
-			} else if toLID = info[to].LID; toLID.IsEmpty() {
-				err = fmt.Errorf("no LID found for %s from server", to)
-				return
-			}
-		}
-		resp.DebugTimings.LIDFetch = time.Since(start)
-		cli.Log.Debugf("Replacing SendMessage destination with LID as migration timestamp is set %s -> %s", to, toLID)
-		to = toLID
-		ownID = cli.getOwnLID()
-	}
+	} 
+	// else if to.Server == types.DefaultUserServer && cli.Store.LIDMigrationTimestamp > 0 && !req.Peer {
+	// 	start := time.Now()
+	// 	var toLID types.JID
+	// 	toLID, err = cli.Store.LIDs.GetLIDForPN(ctx, to)
+	// 	if err != nil {
+	// 		err = fmt.Errorf("failed to get LID for PN %s: %w", to, err)
+	// 		return
+	// 	} else if toLID.IsEmpty() {
+	// 		var info map[types.JID]types.UserInfo
+	// 		info, err = cli.GetUserInfo(ctx, []types.JID{to})
+	// 		if err != nil {
+	// 			err = fmt.Errorf("failed to get user info for %s to fill LID cache: %w", to, err)
+	// 			return
+	// 		} else if toLID = info[to].LID; toLID.IsEmpty() {
+	// 			err = fmt.Errorf("no LID found for %s from server", to)
+	// 			return
+	// 		}
+	// 	}
+	// 	resp.DebugTimings.LIDFetch = time.Since(start)
+	// 	cli.Log.Debugf("Replacing SendMessage destination with LID as migration timestamp is set %s -> %s", to, toLID)
+	// 	to = toLID
+	// 	ownID = cli.getOwnLID()
+	// }
 	if req.Meta != nil {
 		extraParams.metaNode = &waBinary.Node{
 			Tag:   "meta",
@@ -1181,9 +1182,9 @@ func (cli *Client) prepareMessageNode(
 		"to":   to,
 	}
 
-	// if participants[0].Server == types.HiddenUserServer {
-	// 	attrs["addressing_mode"] = "lid"
-	// }
+	if participants[0].Server == types.HiddenUserServer {
+		attrs["addressing_mode"] = "lid"
+	}
 
 	// TODO this is a very hacky hack for announcement group messages, why is it pn anyway?
 	if extraParams.addressingMode != "" {
