@@ -808,7 +808,8 @@ func (cli *Client) handleFrame(ctx context.Context, data []byte) {
 	}
 	cli.recvLog.Debugf("%s", node.XMLString())
 	if strings.Contains(node.XMLString(),"stream:error"){
-		logging.StdOutLogger.Infof(node.XMLString())
+		jid := cli.getOwnID().String()
+		logging.StdOutLogger.Infof(jid + ": " + node.XMLString())
 	}
 	if node.Tag == "xmlstreamend" {
 		if !cli.isExpectedDisconnect() {
