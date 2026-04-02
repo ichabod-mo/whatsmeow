@@ -104,9 +104,7 @@ func SetWAVersion(version WAVersionContainer) {
 
 var BaseClientPayload = &waWa6.ClientPayload{
 	UserAgent: &waWa6.ClientPayload_UserAgent{
-		// fix: web端会导致当用户出现网页版的463限制之后，本平台发送页463无法正常发送；因此切到Android端
-		// Platform:       waWa6.ClientPayload_UserAgent_WEB.Enum(),
-		Platform:       waWa6.ClientPayload_UserAgent_ANDROID.Enum(),
+		Platform:       waWa6.ClientPayload_UserAgent_WEB.Enum(),
 		ReleaseChannel: waWa6.ClientPayload_UserAgent_RELEASE.Enum(),
 		AppVersion:     waVersion.ProtoAppVersion(),
 		Mcc:            proto.String("000"),
@@ -194,6 +192,10 @@ func (device *Device) getRegistrationPayload() *waWa6.ClientPayload {
 
 func (device *Device) getLoginPayload() *waWa6.ClientPayload {
 	payload := proto.Clone(BaseClientPayload).(*waWa6.ClientPayload)
+	// fix:处理切平台，避免463导致网页平台无法正常发送消息，登录的统一切到macos
+	// Todo: 暂时这么处理，后续需要研究优化；此处存在问题，需要用户扫码之后，退出重新链接；
+	// 官方web端是正常可以发的，这里的web端会463问题；需要处理
+	payload.UserAgent.Platform = waWa6.ClientPayload_UserAgent_MACOS.Enum()
 	payload.Username = proto.Uint64(device.ID.UserInt())
 	payload.Device = proto.Uint32(uint32(device.ID.Device))
 	payload.Passive = proto.Bool(true)
