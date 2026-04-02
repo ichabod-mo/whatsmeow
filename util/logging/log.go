@@ -28,6 +28,7 @@ var (
 
 	DefaultPrefix      = ""
 	DefaultCallerDepth = 2
+	Log_Level		  = INFO
 
 	logPrefix           = ""
 	levelFlags          = []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
@@ -58,6 +59,9 @@ func (s *stdoutLogger) Setup() {
 
 // Debug output logs at debug level
 func (s *stdoutLogger) Debugf(msg string, v ...interface{}) {
+	if Log_Level > DEBUG {
+		return
+	}
 	fmt.Printf("excute")
 	setPrefix(DEBUG)
 	logger.Printf(msg, v...)
@@ -65,6 +69,9 @@ func (s *stdoutLogger) Debugf(msg string, v ...interface{}) {
 
 // Info output logs at info level
 func (s *stdoutLogger) Infof(msg string, v ...interface{}) {
+	if Log_Level > INFO {
+		return
+	}
 	fmt.Printf("excute")
 	setPrefix(INFO)
 	logger.Printf(msg, v...)
@@ -72,18 +79,27 @@ func (s *stdoutLogger) Infof(msg string, v ...interface{}) {
 
 // Warn output logs at warn level
 func (s *stdoutLogger) Warnf(msg string, v ...interface{}) {
+	if Log_Level > WARNING {
+		return
+	}
 	setPrefix(WARNING)
 	logger.Printf(msg, v...)
 }
 
 // Error output logs at error level
 func (s *stdoutLogger) Errorf(msg string, v ...interface{}) {
+	if Log_Level > ERROR {
+		return
+	}
 	setPrefix(ERROR)
 	logger.Printf(msg, v...)
 }
 
 // Fatal output logs at fatal level
 func (s *stdoutLogger) Fatalf(msg string, v ...interface{}) {
+	if Log_Level > FATAL {
+		return
+	}
 	setPrefix(FATAL)
 	logger.Printf(msg, v...)
 }
