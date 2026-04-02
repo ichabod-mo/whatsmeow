@@ -106,7 +106,7 @@ var BaseClientPayload = &waWa6.ClientPayload{
 	UserAgent: &waWa6.ClientPayload_UserAgent{
 		// fix: web端会导致当用户出现网页版的463限制之后，本平台发送页463无法正常发送；因此切到Android端
 		// Platform:       waWa6.ClientPayload_UserAgent_WEB.Enum(),
-		Platform:       waWa6.ClientPayload_UserAgent_ARDEVICE.Enum(),
+		Platform:       waWa6.ClientPayload_UserAgent_ANDROID.Enum(),
 		ReleaseChannel: waWa6.ClientPayload_UserAgent_RELEASE.Enum(),
 		AppVersion:     waVersion.ProtoAppVersion(),
 		Mcc:            proto.String("000"),
