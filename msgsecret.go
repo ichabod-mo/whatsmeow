@@ -328,7 +328,7 @@ func (cli *Client) EncryptPollVote(ctx context.Context, pollInfo *types.MessageI
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal poll vote protobuf: %w", err)
 	}
-	ciphertext, iv, err := cli.encryptMsgSecret(ctx, cli.getOwnID(), pollInfo.Chat, pollInfo.Sender, pollInfo.ID, EncSecretPollVote, plaintext)
+	ciphertext, iv, err := cli.encryptMsgSecret(ctx, cli.getOwnLID(), pollInfo.Chat, pollInfo.Sender, pollInfo.ID, EncSecretPollVote, plaintext)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt poll vote: %w", err)
 	}
