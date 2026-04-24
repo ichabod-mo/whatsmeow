@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mau.fi/util/random"
@@ -101,6 +102,9 @@ func (cli *Client) decryptMsgSecret(ctx context.Context, msg *events.Message, us
 	baseEncKey, origSender, err := cli.Store.MsgSecrets.GetMessageSecret(ctx, msg.Info.Chat, origSender, origMsgKey.GetID())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get original message secret key: %w", err)
+	}
+	if strings.Contains(origSender.String(),"s.whatsapp.net"){
+		origSender, _ = cli.Store.LIDs.GetLIDForPN(ctx, origSender)
 	}
 	if baseEncKey == nil {
 		return nil, ErrOriginalMessageSecretNotFound
