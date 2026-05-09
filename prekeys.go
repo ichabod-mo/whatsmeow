@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"time"
 
 	"go.mau.fi/libsignal/ecc"
@@ -18,6 +19,7 @@ import (
 	"go.mau.fi/libsignal/util/optional"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/util/keys"
 )
@@ -26,7 +28,7 @@ const (
 	// WantedPreKeyCount is the number of prekeys that the client should upload to the WhatsApp servers in a single batch.
 	WantedPreKeyCount = 50
 	// MinPreKeyCount is the number of prekeys when the client will upload a new batch of prekeys to the WhatsApp servers.
-	MinPreKeyCount = 5
+	MinPreKeyCount = 50
 )
 
 func (cli *Client) getServerPreKeyCount(ctx context.Context) (int, error) {
@@ -45,6 +47,267 @@ func (cli *Client) getServerPreKeyCount(ctx context.Context) (int, error) {
 	ag := count.AttrGetter()
 	val := ag.Int("value")
 	return val, ag.Error()
+}
+
+func (cli *Client) getServerPreKeyID(ctx context.Context) ([]uint32, error) {
+	digest, err := cli.getServerPreKeyDigest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return digest.PreKeyIDs, nil
+}
+
+func (cli *Client) getServerPreKeyDigest(ctx context.Context) (*serverPreKeyDigest, error) {
+	resp, err := cli.sendIQ(ctx, infoQuery{
+		Namespace: "encrypt",
+		Type:      "get",
+		To:        types.ServerJID,
+		Content: []waBinary.Node{
+			{Tag: "digest"},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get prekey digest on server: %w", err)
+	}
+	return parseServerPreKeyDigest(resp)
+}
+
+type serverPreKeyDigest struct {
+	RegistrationID        uint32
+	KeyType               byte
+	IdentityKey           [32]byte
+	SignedPreKeyID        uint32
+	SignedPreKeyValue     [32]byte
+	SignedPreKeySignature [64]byte
+	PreKeyIDs             []uint32
+}
+
+func parseServerPreKeyDigest(resp *waBinary.Node) (*serverPreKeyDigest, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("got empty response to prekey digest request")
+	}
+	digestNode, ok := resp.GetOptionalChildByTag("digest")
+	if !ok {
+		return nil, fmt.Errorf("prekey digest response did not contain digest")
+	}
+
+	registrationBytes, err := preKeyDigestChildBytes(digestNode, "registration", 4)
+	if err != nil {
+		return nil, err
+	}
+	keyTypeBytes, err := preKeyDigestChildBytes(digestNode, "type", 1)
+	if err != nil {
+		return nil, err
+	}
+	identityBytes, err := preKeyDigestChildBytes(digestNode, "identity", 32)
+	if err != nil {
+		return nil, err
+	}
+	signedPreKey, ok := digestNode.GetOptionalChildByTag("skey")
+	if !ok {
+		return nil, fmt.Errorf("prekey digest response did not contain skey")
+	}
+	signedPreKeyIDBytes, err := preKeyDigestChildBytes(signedPreKey, "id", 3)
+	if err != nil {
+		return nil, err
+	}
+	signedPreKeyValueBytes, err := preKeyDigestChildBytes(signedPreKey, "value", 32)
+	if err != nil {
+		return nil, err
+	}
+	signedPreKeySignatureBytes, err := preKeyDigestChildBytes(signedPreKey, "signature", 64)
+	if err != nil {
+		return nil, err
+	}
+	signedPreKeyID := preKeyIDFromBytes(signedPreKeyIDBytes)
+	if signedPreKeyID < store.PreKeyIDMin || signedPreKeyID > store.PreKeyIDMax {
+		return nil, fmt.Errorf("prekey digest signed prekey ID %d outside valid range %d..%d", signedPreKeyID, store.PreKeyIDMin, store.PreKeyIDMax)
+	}
+	list, ok := digestNode.GetOptionalChildByTag("list")
+	if !ok {
+		return nil, fmt.Errorf("prekey digest response did not contain list")
+	}
+	preKeyIDs, err := parsePreKeyIDList(list)
+	if err != nil {
+		return nil, err
+	}
+
+	digest := &serverPreKeyDigest{
+		RegistrationID: binary.BigEndian.Uint32(registrationBytes),
+		KeyType:        keyTypeBytes[0],
+		SignedPreKeyID: signedPreKeyID,
+		PreKeyIDs:      preKeyIDs,
+	}
+	copy(digest.IdentityKey[:], identityBytes)
+	copy(digest.SignedPreKeyValue[:], signedPreKeyValueBytes)
+	copy(digest.SignedPreKeySignature[:], signedPreKeySignatureBytes)
+	return digest, nil
+}
+
+func parseServerPreKeyIDs(resp *waBinary.Node) ([]uint32, error) {
+	digest, err := parseServerPreKeyDigest(resp)
+	if err != nil {
+		return nil, err
+	}
+	return digest.PreKeyIDs, nil
+}
+
+func preKeyDigestChildBytes(node waBinary.Node, tag string, expectedLength int) ([]byte, error) {
+	child := node.GetChildByTag(tag)
+	if child.Tag != tag {
+		return nil, fmt.Errorf("prekey digest response did not contain %s", tag)
+	}
+	content, ok := child.Content.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("prekey digest %s has unexpected content (%T)", tag, child.Content)
+	} else if len(content) != expectedLength {
+		return nil, fmt.Errorf("prekey digest %s has unexpected number of bytes (%d, expected %d)", tag, len(content), expectedLength)
+	}
+	return content, nil
+}
+
+func parsePreKeyIDList(list waBinary.Node) ([]uint32, error) {
+	idNodes := list.GetChildrenByTag("id")
+	ids := make([]uint32, 0, len(idNodes))
+	seen := make(map[uint32]struct{}, len(idNodes))
+	for _, idNode := range idNodes {
+		idBytes, ok := idNode.Content.([]byte)
+		if !ok {
+			return nil, fmt.Errorf("prekey digest ID has unexpected content (%T)", idNode.Content)
+		} else if len(idBytes) != 3 {
+			return nil, fmt.Errorf("prekey digest ID has unexpected number of bytes (%d, expected 3)", len(idBytes))
+		}
+		id := preKeyIDFromBytes(idBytes)
+		if id < store.PreKeyIDMin || id > store.PreKeyIDMax {
+			return nil, fmt.Errorf("prekey digest ID %d outside valid range %d..%d", id, store.PreKeyIDMin, store.PreKeyIDMax)
+		}
+		if _, ok = seen[id]; ok {
+			return nil, fmt.Errorf("prekey digest contained duplicate ID %d", id)
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
+func (digest *serverPreKeyDigest) compareLocal(cli *Client) (bool, string) {
+	switch {
+	case digest.RegistrationID != cli.Store.RegistrationID:
+		return false, "registration ID"
+	case digest.KeyType != ecc.DjbType:
+		return false, "key type"
+	case cli.Store.IdentityKey == nil || cli.Store.IdentityKey.Pub == nil:
+		return false, "local identity key"
+	case digest.IdentityKey != *cli.Store.IdentityKey.Pub:
+		return false, "identity key"
+	case cli.Store.SignedPreKey == nil:
+		return false, "local signed prekey"
+	case digest.SignedPreKeyID != cli.Store.SignedPreKey.KeyID:
+		return false, "signed prekey ID"
+	case cli.Store.SignedPreKey.Pub == nil:
+		return false, "local signed prekey value"
+	case digest.SignedPreKeyValue != *cli.Store.SignedPreKey.Pub:
+		return false, "signed prekey value"
+	case cli.Store.SignedPreKey.Signature == nil:
+		return false, "local signed prekey signature"
+	case digest.SignedPreKeySignature != *cli.Store.SignedPreKey.Signature:
+		return false, "signed prekey signature"
+	default:
+		return true, ""
+	}
+}
+
+func preKeyIDFromBytes(idBytes []byte) uint32 {
+	return binary.BigEndian.Uint32([]byte{0, idBytes[0], idBytes[1], idBytes[2]})
+}
+
+func preKeyIDToBytes(id uint32) []byte {
+	var keyID [4]byte
+	binary.BigEndian.PutUint32(keyID[:], id)
+	return keyID[1:]
+}
+
+func preKeyIDsToNodes(ids []uint32) []waBinary.Node {
+	nodes := make([]waBinary.Node, len(ids))
+	for i, id := range ids {
+		nodes[i] = waBinary.Node{Tag: "id", Content: preKeyIDToBytes(id)}
+	}
+	return nodes
+}
+
+func preKeyIDs(preKeys []*keys.PreKey) []uint32 {
+	ids := make([]uint32, len(preKeys))
+	for i, key := range preKeys {
+		ids[i] = key.KeyID
+	}
+	return ids
+}
+
+type preKeyIDSetStatus uint8
+
+const (
+	preKeyIDSetEqual preKeyIDSetStatus = iota
+	preKeyIDSetOverlap
+	preKeyIDSetDisjoint
+)
+
+func comparePreKeyIDSets(localIDs, serverIDs []uint32) preKeyIDSetStatus {
+	if len(localIDs) == 0 && len(serverIDs) == 0 {
+		return preKeyIDSetEqual
+	}
+	localSet := make(map[uint32]struct{}, len(localIDs))
+	for _, id := range localIDs {
+		localSet[id] = struct{}{}
+	}
+	equal := len(localSet) == len(serverIDs)
+	overlap := false
+	seenServerIDs := make(map[uint32]struct{}, len(serverIDs))
+	for _, id := range serverIDs {
+		if _, duplicate := seenServerIDs[id]; duplicate {
+			equal = false
+			continue
+		}
+		seenServerIDs[id] = struct{}{}
+		if _, ok := localSet[id]; ok {
+			overlap = true
+		} else {
+			equal = false
+		}
+	}
+	if equal {
+		return preKeyIDSetEqual
+	} else if overlap {
+		return preKeyIDSetOverlap
+	}
+	return preKeyIDSetDisjoint
+}
+
+// 删除服务器上的预密钥
+func (cli *Client) deleteServerPreKeys(ctx context.Context, ids []uint32) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := cli.sendIQ(ctx, infoQuery{
+		Namespace: "encrypt",
+		Type:      "set",
+		To:        types.ServerJID,
+		Content: []waBinary.Node{{
+			Tag: "op",
+			Attrs: waBinary.Attrs{
+				"mode": "delete",
+			},
+		}, {
+			Tag: "list",
+		}, {
+			Tag: "pq_list",
+		},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete prekeys on server: %w", err)
+	}
+	return nil
 }
 
 func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
@@ -67,6 +330,9 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
 	if err != nil {
 		cli.Log.Errorf("Failed to get prekeys to upload: %v", err)
 		return
+	} else if len(preKeys) == 0 {
+		cli.Log.Warnf("No prekeys returned for upload")
+		return
 	}
 	cli.Log.Infof("Uploading %d new prekeys to server", len(preKeys))
 	_, err = cli.sendIQ(ctx, infoQuery{
@@ -86,7 +352,7 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
 		return
 	}
 	cli.Log.Debugf("Got response to uploading prekeys")
-	err = cli.Store.PreKeys.MarkPreKeysAsUploaded(ctx, preKeys[len(preKeys)-1].KeyID)
+	err = cli.Store.PreKeys.MarkPreKeysAsUploaded(ctx, preKeyIDs(preKeys))
 	if err != nil {
 		cli.Log.Warnf("Failed to mark prekeys as uploaded: %v", err)
 		return
@@ -158,12 +424,10 @@ func (cli *Client) fetchPreKeys(ctx context.Context, users []types.JID) (map[typ
 }
 
 func preKeyToNode(key *keys.PreKey) waBinary.Node {
-	var keyID [4]byte
-	binary.BigEndian.PutUint32(keyID[:], key.KeyID)
 	node := waBinary.Node{
 		Tag: "key",
 		Content: []waBinary.Node{
-			{Tag: "id", Content: keyID[1:]},
+			{Tag: "id", Content: preKeyIDToBytes(key.KeyID)},
 			{Tag: "value", Content: key.Pub[:]},
 		},
 	}

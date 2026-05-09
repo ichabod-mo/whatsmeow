@@ -8,6 +8,7 @@ package whatsmeow
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
@@ -188,18 +189,7 @@ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node
 	// so do this unconditionally for a few months to ensure everyone gets the row.
 	cli.StoreLIDPNMapping(ctx, cli.Store.GetLID(), cli.Store.GetJID())
 	go func() {
-		if dbCount, err := cli.Store.PreKeys.UploadedPreKeyCount(ctx); err != nil {
-			cli.Log.Errorf("Failed to get number of prekeys in database: %v", err)
-		} else if serverCount, err := cli.getServerPreKeyCount(ctx); err != nil {
-			cli.Log.Warnf("Failed to get number of prekeys on server: %v", err)
-		} else {
-			cli.Log.Debugf("Database has %d prekeys, server says we have %d", dbCount, serverCount)
-			if serverCount < MinPreKeyCount || dbCount < MinPreKeyCount {
-				cli.uploadPreKeys(ctx, dbCount == 0 && serverCount == 0)
-				sc, _ := cli.getServerPreKeyCount(ctx)
-				cli.Log.Debugf("Prekey count after upload: %d", sc)
-			}
-		}
+		cli.checkAndSyncPreKeys(ctx)
 		err := cli.SetPassive(ctx, false)
 		if err != nil {
 			cli.Log.Warnf("Failed to send post-connect passive IQ: %v", err)
@@ -207,6 +197,80 @@ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node
 		cli.dispatchEvent(&events.Connected{})
 		cli.closeSocketWaitChan()
 	}()
+}
+
+func (cli *Client) checkAndSyncPreKeys(ctx context.Context) {
+	localIDs, err := cli.Store.PreKeys.UploadedPreKeyIDs(ctx)
+	if err != nil {
+		cli.Log.Errorf("Failed to get uploaded prekey IDs in database: %v", err)
+		return
+	}
+	serverCount, err := cli.getServerPreKeyCount(ctx)
+	if err != nil {
+		cli.Log.Warnf("Failed to get number of prekeys on server: %v", err)
+		return
+	}
+	cli.Log.Debugf("Database has %d prekeys, server says we have %d", len(localIDs), serverCount)
+	logging.StdOutLogger.Infof("Database has %d prekeys, server says we have %d", len(localIDs), serverCount)
+
+	serverDigest, err := cli.getServerPreKeyDigest(ctx)
+	if err != nil {
+		cli.Log.Warnf("Failed to get prekey digest on server: %v", err)
+		if serverCount < MinPreKeyCount || len(localIDs) < MinPreKeyCount {
+			cli.uploadPreKeys(ctx, len(localIDs) == 0 && serverCount == 0)
+			sc, _ := cli.getServerPreKeyCount(ctx)
+			cli.Log.Debugf("Prekey count after upload: %d", sc)
+		}
+		return
+	}
+	serverIDs := serverDigest.PreKeyIDs
+	if serverCount != len(serverIDs) {
+		logging.StdOutLogger.Warnf("Server prekey count response (%d) differs from digest ID count (%d)", serverCount, len(serverIDs))
+	}
+	if ok, field := serverDigest.compareLocal(cli); !ok {
+		cli.resetPreKeys(ctx, serverIDs, fmt.Sprintf("Server prekey digest %s does not match local store", field))
+		return
+	}
+
+	switch comparePreKeyIDSets(localIDs, serverIDs) {
+	case preKeyIDSetEqual:
+		if len(serverIDs) < MinPreKeyCount || len(localIDs) < MinPreKeyCount {
+			cli.uploadPreKeys(ctx, len(localIDs) == 0 && len(serverIDs) == 0)
+			sc, _ := cli.getServerPreKeyCount(ctx)
+			cli.Log.Debugf("Prekey count after upload: %d", sc)
+		}
+	case preKeyIDSetOverlap:
+		cli.Log.Infof("Local and server prekey IDs differ, syncing local database to server IDs")
+		err = cli.Store.PreKeys.SyncUploadedPreKeyIDs(ctx, serverIDs)
+		if err != nil {
+			logging.StdOutLogger.Warnf("Failed to sync local prekey IDs to server IDs: %v", err)
+			return
+		}
+		if len(serverIDs) < MinPreKeyCount {
+			cli.uploadPreKeys(ctx, false)
+			sc, _ := cli.getServerPreKeyCount(ctx)
+			logging.StdOutLogger.Debugf("Prekey count after upload: %d", sc)
+		}
+	case preKeyIDSetDisjoint:
+		cli.resetPreKeys(ctx, serverIDs, "Local and server prekey IDs have no overlap")
+	}
+}
+
+func (cli *Client) resetPreKeys(ctx context.Context, serverIDs []uint32, reason string) {
+	logging.StdOutLogger.Warnf("%s, deleting both sides and uploading a fresh batch", reason)
+	err := cli.deleteServerPreKeys(ctx, serverIDs)
+	if err != nil {
+		logging.StdOutLogger.Warnf("Failed to delete server prekeys before local reset: %v", err)
+		return
+	}
+	err = cli.Store.PreKeys.ClearPreKeys(ctx)
+	if err != nil {
+		logging.StdOutLogger.Warnf("Failed to clear local prekeys after deleting server prekeys: %v", err)
+		return
+	}
+	cli.uploadPreKeys(ctx, true)
+	sc, _ := cli.getServerPreKeyCount(ctx)
+	cli.Log.Debugf("Prekey count after fresh upload: %d", sc)
 }
 
 // SetPassive tells the WhatsApp server whether this device is passive or not.

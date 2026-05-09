@@ -43,9 +43,17 @@ type PreKeyStore interface {
 	GenOnePreKey(ctx context.Context) (*keys.PreKey, error)
 	GetPreKey(ctx context.Context, id uint32) (*keys.PreKey, error)
 	RemovePreKey(ctx context.Context, id uint32) error
-	MarkPreKeysAsUploaded(ctx context.Context, upToID uint32) error
+	MarkPreKeysAsUploaded(ctx context.Context, ids []uint32) error
+	UploadedPreKeyIDs(ctx context.Context) ([]uint32, error)
 	UploadedPreKeyCount(ctx context.Context) (int, error)
+	ClearPreKeys(ctx context.Context) error
+	SyncUploadedPreKeyIDs(ctx context.Context, ids []uint32) error
 }
+
+const (
+	PreKeyIDMin uint32 = 1
+	PreKeyIDMax uint32 = 16777214
+)
 
 type SenderKeyStore interface {
 	PutSenderKey(ctx context.Context, group, user string, session []byte) error
