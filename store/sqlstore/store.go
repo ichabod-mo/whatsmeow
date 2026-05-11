@@ -305,18 +305,19 @@ func (s *SQLStore) MigratePNToLID(ctx context.Context, pn, lid types.JID) error 
 }
 
 const (
-	getAllPreKeyIDsQuery        = `SELECT key_id FROM whatsmeow_pre_keys WHERE jid=$1 ORDER BY key_id`
-	getUploadedPreKeyIDsQuery   = `SELECT key_id FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=true ORDER BY key_id`
-	getUploadedPreKeysQuery     = `SELECT key_id, key FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=true ORDER BY key_id`
-	insertPreKeyQuery           = `INSERT INTO whatsmeow_pre_keys (jid, key_id, key, uploaded) VALUES ($1, $2, $3, $4)`
-	getUnuploadedPreKeysQuery   = `SELECT key_id, key FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=false ORDER BY key_id LIMIT $2`
-	getPreKeyQuery              = `SELECT key_id, key FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id=$2`
-	deletePreKeyQuery           = `DELETE FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id=$2`
-	deleteUnuploadedPreKeyQuery = `DELETE FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id=$2 AND uploaded=false`
-	deleteAllPreKeysQuery       = `DELETE FROM whatsmeow_pre_keys WHERE jid=$1`
-	markPreKeyAsUploadedQuery   = `UPDATE whatsmeow_pre_keys SET uploaded=true WHERE jid=$1 AND key_id=$2`
-	updatePreKeyIDQuery         = `UPDATE whatsmeow_pre_keys SET key_id=$3, uploaded=true WHERE jid=$1 AND key_id=$2`
-	getUploadedPreKeyCountQuery = `SELECT COUNT(*) FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=true`
+	getPreKeyIDsInRangeQuery        = `SELECT key_id FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id BETWEEN $2 AND $3 ORDER BY key_id`
+	getUploadedPreKeyIDsQuery       = `SELECT key_id FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=true AND key_id BETWEEN $2 AND $3 ORDER BY key_id`
+	getUploadedPreKeysQuery         = `SELECT key_id, key FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=true AND key_id BETWEEN $2 AND $3 ORDER BY key_id`
+	insertPreKeyQuery               = `INSERT INTO whatsmeow_pre_keys (jid, key_id, key, uploaded) VALUES ($1, $2, $3, $4)`
+	getUnuploadedServerPreKeysQuery = `SELECT key_id, key FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=false AND key_id BETWEEN $2 AND $3 ORDER BY key_id LIMIT $4`
+	getPreKeyQuery                  = `SELECT key_id, key FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id=$2`
+	deletePreKeyQuery               = `DELETE FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id=$2`
+	deleteUnuploadedPreKeyQuery     = `DELETE FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id=$2 AND uploaded=false`
+	deleteAllPreKeysQuery           = `DELETE FROM whatsmeow_pre_keys WHERE jid=$1`
+	deleteRetryPreKeysQuery         = `DELETE FROM whatsmeow_pre_keys WHERE jid=$1 AND key_id BETWEEN $2 AND $3`
+	markPreKeyAsUploadedQuery       = `UPDATE whatsmeow_pre_keys SET uploaded=true WHERE jid=$1 AND key_id=$2`
+	updatePreKeyIDQuery             = `UPDATE whatsmeow_pre_keys SET key_id=$3, uploaded=true WHERE jid=$1 AND key_id=$2`
+	getUploadedPreKeyCountQuery     = `SELECT COUNT(*) FROM whatsmeow_pre_keys WHERE jid=$1 AND uploaded=true AND key_id BETWEEN $2 AND $3`
 )
 
 var errNoAvailablePreKeyIDs = errors.New("no available prekey IDs")
@@ -332,8 +333,8 @@ var preKeyIDScanner = dbutil.ConvertRowFn[uint32](func(row dbutil.Scannable) (ou
 	return
 })
 
-func (s *SQLStore) getAllPreKeyIDs(ctx context.Context) ([]uint32, error) {
-	rows, err := s.db.Query(ctx, getAllPreKeyIDsQuery, s.JID)
+func (s *SQLStore) getPreKeyIDsInRange(ctx context.Context, minID, maxID uint32) ([]uint32, error) {
+	rows, err := s.db.Query(ctx, getPreKeyIDsInRangeQuery, s.JID, minID, maxID)
 	ids := make([]uint32, 0)
 	err = preKeyIDScanner.NewRowIter(rows, err).Iter(func(id uint32) (bool, error) {
 		ids = append(ids, id)
@@ -345,32 +346,36 @@ func (s *SQLStore) getAllPreKeyIDs(ctx context.Context) ([]uint32, error) {
 type preKeyIDAllocator struct {
 	used map[uint32]struct{}
 	next uint32
+	min  uint32
+	max  uint32
 }
 
-func newPreKeyIDAllocator(existingIDs []uint32) preKeyIDAllocator {
+func newPreKeyIDAllocator(existingIDs []uint32, minID, maxID uint32) preKeyIDAllocator {
 	allocator := preKeyIDAllocator{
 		used: make(map[uint32]struct{}, len(existingIDs)),
-		next: store.PreKeyIDMin,
+		next: minID,
+		min:  minID,
+		max:  maxID,
 	}
-	var maxID uint32
+	var highestID uint32
 	for _, id := range existingIDs {
-		if id < store.PreKeyIDMin || id > store.PreKeyIDMax {
+		if id < minID || id > maxID {
 			continue
 		}
 		allocator.used[id] = struct{}{}
-		if id > maxID {
-			maxID = id
+		if id > highestID {
+			highestID = id
 		}
 	}
-	if maxID >= store.PreKeyIDMin && maxID < store.PreKeyIDMax {
-		allocator.next = maxID + 1
+	if highestID >= minID && highestID < maxID {
+		allocator.next = highestID + 1
 	}
 	return allocator
 }
 
-func nextPreKeyIDCandidate(id uint32) uint32 {
-	if id < store.PreKeyIDMin || id >= store.PreKeyIDMax {
-		return store.PreKeyIDMin
+func nextPreKeyIDCandidate(id, minID, maxID uint32) uint32 {
+	if id < minID || id >= maxID {
+		return minID
 	}
 	return id + 1
 }
@@ -381,27 +386,27 @@ func (a *preKeyIDAllocator) Next() (uint32, error) {
 		if _, ok := a.used[a.next]; !ok {
 			id := a.next
 			a.used[id] = struct{}{}
-			a.next = nextPreKeyIDCandidate(id)
+			a.next = nextPreKeyIDCandidate(id, a.min, a.max)
 			return id, nil
 		}
-		a.next = nextPreKeyIDCandidate(a.next)
+		a.next = nextPreKeyIDCandidate(a.next, a.min, a.max)
 		if a.next == start {
 			return 0, errNoAvailablePreKeyIDs
 		}
 	}
 }
 
-func nextPreKeyID(existingIDs []uint32) (uint32, error) {
-	allocator := newPreKeyIDAllocator(existingIDs)
+func nextPreKeyID(existingIDs []uint32, minID, maxID uint32) (uint32, error) {
+	allocator := newPreKeyIDAllocator(existingIDs, minID, maxID)
 	return allocator.Next()
 }
 
 func (s *SQLStore) getNextPreKeyID(ctx context.Context) (uint32, error) {
-	existingIDs, err := s.getAllPreKeyIDs(ctx)
+	existingIDs, err := s.getPreKeyIDsInRange(ctx, store.PreKeyServerIDMin, store.PreKeyServerIDMax)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query existing prekey IDs: %w", err)
 	}
-	nextID, err := nextPreKeyID(existingIDs)
+	nextID, err := nextPreKeyID(existingIDs, store.PreKeyServerIDMin, store.PreKeyServerIDMax)
 	if err != nil {
 		return 0, fmt.Errorf("failed to find next prekey ID: %w", err)
 	}
@@ -418,11 +423,29 @@ func (s *SQLStore) GenOnePreKey(ctx context.Context) (*keys.PreKey, error) {
 	return s.genOnePreKey(ctx, nextKeyID, true)
 }
 
+func (s *SQLStore) GenOneRetryPreKey(ctx context.Context) (*keys.PreKey, error) {
+	s.preKeyLock.Lock()
+	defer s.preKeyLock.Unlock()
+	err := s.cleanupExcessRetryPreKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	existingIDs, err := s.getPreKeyIDsInRange(ctx, store.PreKeyRetryIDMin, store.PreKeyRetryIDMax)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query existing retry prekey IDs: %w", err)
+	}
+	nextKeyID, err := nextPreKeyID(existingIDs, store.PreKeyRetryIDMin, store.PreKeyRetryIDMax)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find next retry prekey ID: %w", err)
+	}
+	return s.genOnePreKey(ctx, nextKeyID, false)
+}
+
 func (s *SQLStore) GetOrGenPreKeys(ctx context.Context, count uint32) ([]*keys.PreKey, error) {
 	s.preKeyLock.Lock()
 	defer s.preKeyLock.Unlock()
 
-	res, err := s.db.Query(ctx, getUnuploadedPreKeysQuery, s.JID, count)
+	res, err := s.db.Query(ctx, getUnuploadedServerPreKeysQuery, s.JID, store.PreKeyServerIDMin, store.PreKeyServerIDMax, count)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query existing prekeys: %w", err)
 	}
@@ -441,11 +464,11 @@ func (s *SQLStore) GetOrGenPreKeys(ctx context.Context, count uint32) ([]*keys.P
 
 	if existingCount < uint32(len(newKeys)) {
 		var existingIDs []uint32
-		existingIDs, err = s.getAllPreKeyIDs(ctx)
+		existingIDs, err = s.getPreKeyIDsInRange(ctx, store.PreKeyServerIDMin, store.PreKeyServerIDMax)
 		if err != nil {
 			return nil, err
 		}
-		allocator := newPreKeyIDAllocator(existingIDs)
+		allocator := newPreKeyIDAllocator(existingIDs, store.PreKeyServerIDMin, store.PreKeyServerIDMax)
 		for i := existingCount; i < count; i++ {
 			nextKeyID, err := allocator.Next()
 			if err != nil {
@@ -488,11 +511,19 @@ func (s *SQLStore) RemovePreKey(ctx context.Context, id uint32) error {
 }
 
 func validatePreKeyIDs(ids []uint32) ([]uint32, error) {
+	return validatePreKeyIDsInRange(ids, store.PreKeyIDMin, store.PreKeyIDMax)
+}
+
+func validateServerPreKeyIDs(ids []uint32) ([]uint32, error) {
+	return validatePreKeyIDsInRange(ids, store.PreKeyServerIDMin, store.PreKeyServerIDMax)
+}
+
+func validatePreKeyIDsInRange(ids []uint32, minID, maxID uint32) ([]uint32, error) {
 	copied := slices.Clone(ids)
 	slices.Sort(copied)
 	for i, id := range copied {
-		if id < store.PreKeyIDMin || id > store.PreKeyIDMax {
-			return nil, fmt.Errorf("prekey ID %d outside valid range %d..%d", id, store.PreKeyIDMin, store.PreKeyIDMax)
+		if id < minID || id > maxID {
+			return nil, fmt.Errorf("prekey ID %d outside valid range %d..%d", id, minID, maxID)
 		}
 		if i > 0 && copied[i-1] == id {
 			return nil, fmt.Errorf("duplicate prekey ID %d", id)
@@ -502,7 +533,7 @@ func validatePreKeyIDs(ids []uint32) ([]uint32, error) {
 }
 
 func (s *SQLStore) MarkPreKeysAsUploaded(ctx context.Context, ids []uint32) error {
-	ids, err := validatePreKeyIDs(ids)
+	ids, err := validateServerPreKeyIDs(ids)
 	if err != nil {
 		return err
 	} else if len(ids) == 0 {
@@ -522,7 +553,7 @@ func (s *SQLStore) MarkPreKeysAsUploaded(ctx context.Context, ids []uint32) erro
 }
 
 func (s *SQLStore) UploadedPreKeyIDs(ctx context.Context) ([]uint32, error) {
-	rows, err := s.db.Query(ctx, getUploadedPreKeyIDsQuery, s.JID)
+	rows, err := s.db.Query(ctx, getUploadedPreKeyIDsQuery, s.JID, store.PreKeyServerIDMin, store.PreKeyServerIDMax)
 	ids := make([]uint32, 0)
 	err = preKeyIDScanner.NewRowIter(rows, err).Iter(func(id uint32) (bool, error) {
 		ids = append(ids, id)
@@ -532,7 +563,7 @@ func (s *SQLStore) UploadedPreKeyIDs(ctx context.Context) ([]uint32, error) {
 }
 
 func (s *SQLStore) UploadedPreKeyCount(ctx context.Context) (count int, err error) {
-	err = s.db.QueryRow(ctx, getUploadedPreKeyCountQuery, s.JID).Scan(&count)
+	err = s.db.QueryRow(ctx, getUploadedPreKeyCountQuery, s.JID, store.PreKeyServerIDMin, store.PreKeyServerIDMax).Scan(&count)
 	return
 }
 
@@ -543,8 +574,36 @@ func (s *SQLStore) ClearPreKeys(ctx context.Context) error {
 	return err
 }
 
+func (s *SQLStore) ClearRetryPreKeys(ctx context.Context) error {
+	s.preKeyLock.Lock()
+	defer s.preKeyLock.Unlock()
+	_, err := s.db.Exec(ctx, deleteRetryPreKeysQuery, s.JID, store.PreKeyRetryIDMin, store.PreKeyRetryIDMax)
+	return err
+}
+
+func (s *SQLStore) cleanupExcessRetryPreKeys(ctx context.Context) error {
+	retryIDs, err := s.getPreKeyIDsInRange(ctx, store.PreKeyRetryIDMin, store.PreKeyRetryIDMax)
+	if err != nil {
+		return fmt.Errorf("failed to query retry prekey IDs: %w", err)
+	}
+	if len(retryIDs) <= store.MaxRetryPreKeyCount {
+		return nil
+	}
+	deleteCount := store.RetryPreKeyCleanupBatch
+	if deleteCount > len(retryIDs) {
+		deleteCount = len(retryIDs)
+	}
+	for _, id := range retryIDs[:deleteCount] {
+		_, err = s.db.Exec(ctx, deletePreKeyQuery, s.JID, id)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SQLStore) getUploadedPreKeys(ctx context.Context) ([]*keys.PreKey, error) {
-	rows, err := s.db.Query(ctx, getUploadedPreKeysQuery, s.JID)
+	rows, err := s.db.Query(ctx, getUploadedPreKeysQuery, s.JID, store.PreKeyServerIDMin, store.PreKeyServerIDMax)
 	if err != nil {
 		return nil, err
 	}
@@ -604,7 +663,7 @@ func planUploadedPreKeyIDSync(uploadedIDs, targetIDs []uint32) (preKeyIDSyncPlan
 }
 
 func (s *SQLStore) SyncUploadedPreKeyIDs(ctx context.Context, ids []uint32) error {
-	ids, err := validatePreKeyIDs(ids)
+	ids, err := validateServerPreKeyIDs(ids)
 	if err != nil {
 		return err
 	} else if len(ids) == 0 {

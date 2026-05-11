@@ -100,6 +100,10 @@ func (n *NoopStore) GenOnePreKey(ctx context.Context) (*keys.PreKey, error) {
 	return nil, n.Error
 }
 
+func (n *NoopStore) GenOneRetryPreKey(ctx context.Context) (*keys.PreKey, error) {
+	return nil, n.Error
+}
+
 func (n *NoopStore) GetPreKey(ctx context.Context, id uint32) (*keys.PreKey, error) {
 	return nil, n.Error
 }
@@ -121,6 +125,10 @@ func (n *NoopStore) UploadedPreKeyCount(ctx context.Context) (int, error) {
 }
 
 func (n *NoopStore) ClearPreKeys(ctx context.Context) error {
+	return n.Error
+}
+
+func (n *NoopStore) ClearRetryPreKeys(ctx context.Context) error {
 	return n.Error
 }
 

@@ -283,7 +283,18 @@ func comparePreKeyIDSets(localIDs, serverIDs []uint32) preKeyIDSetStatus {
 	return preKeyIDSetDisjoint
 }
 
-// 删除服务器上的预密钥
+func splitServerAndRetryPreKeyIDs(ids []uint32) (serverIDs, retryIDs []uint32) {
+	for _, id := range ids {
+		switch {
+		case id >= store.PreKeyServerIDMin && id <= store.PreKeyServerIDMax:
+			serverIDs = append(serverIDs, id)
+		case id >= store.PreKeyRetryIDMin && id <= store.PreKeyRetryIDMax:
+			retryIDs = append(retryIDs, id)
+		}
+	}
+	return serverIDs, retryIDs
+}
+
 func (cli *Client) deleteServerPreKeys(ctx context.Context, ids []uint32) error {
 	if len(ids) == 0 {
 		return nil
@@ -310,14 +321,14 @@ func (cli *Client) deleteServerPreKeys(ctx context.Context, ids []uint32) error 
 	return nil
 }
 
-func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
+func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) bool {
 	cli.uploadPreKeysLock.Lock()
 	defer cli.uploadPreKeysLock.Unlock()
-	if cli.lastPreKeyUpload.Add(10 * time.Minute).After(time.Now()) {
+	if !initialUpload && cli.lastPreKeyUpload.Add(10*time.Minute).After(time.Now()) {
 		sc, _ := cli.getServerPreKeyCount(ctx)
 		if sc >= WantedPreKeyCount {
 			cli.Log.Debugf("Canceling prekey upload request due to likely race condition")
-			return
+			return false
 		}
 	}
 	var registrationIDBytes [4]byte
@@ -329,10 +340,10 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
 	preKeys, err := cli.Store.PreKeys.GetOrGenPreKeys(ctx, uint32(wantedCount))
 	if err != nil {
 		cli.Log.Errorf("Failed to get prekeys to upload: %v", err)
-		return
+		return false
 	} else if len(preKeys) == 0 {
 		cli.Log.Warnf("No prekeys returned for upload")
-		return
+		return false
 	}
 	cli.Log.Infof("Uploading %d new prekeys to server", len(preKeys))
 	_, err = cli.sendIQ(ctx, infoQuery{
@@ -349,16 +360,16 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
 	})
 	if err != nil {
 		cli.Log.Errorf("Failed to send request to upload prekeys: %v", err)
-		return
+		return false
 	}
 	cli.Log.Debugf("Got response to uploading prekeys")
 	err = cli.Store.PreKeys.MarkPreKeysAsUploaded(ctx, preKeyIDs(preKeys))
 	if err != nil {
 		cli.Log.Warnf("Failed to mark prekeys as uploaded: %v", err)
-		return
+		return false
 	}
 	cli.lastPreKeyUpload = time.Now()
-	return
+	return true
 }
 
 func (cli *Client) fetchPreKeysNoError(ctx context.Context, retryDevices []types.JID) map[types.JID]*prekey.Bundle {

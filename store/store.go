@@ -41,18 +41,27 @@ type SessionStore interface {
 type PreKeyStore interface {
 	GetOrGenPreKeys(ctx context.Context, count uint32) ([]*keys.PreKey, error)
 	GenOnePreKey(ctx context.Context) (*keys.PreKey, error)
+	GenOneRetryPreKey(ctx context.Context) (*keys.PreKey, error)
 	GetPreKey(ctx context.Context, id uint32) (*keys.PreKey, error)
 	RemovePreKey(ctx context.Context, id uint32) error
 	MarkPreKeysAsUploaded(ctx context.Context, ids []uint32) error
 	UploadedPreKeyIDs(ctx context.Context) ([]uint32, error)
 	UploadedPreKeyCount(ctx context.Context) (int, error)
 	ClearPreKeys(ctx context.Context) error
+	ClearRetryPreKeys(ctx context.Context) error
 	SyncUploadedPreKeyIDs(ctx context.Context, ids []uint32) error
 }
 
 const (
-	PreKeyIDMin uint32 = 1
-	PreKeyIDMax uint32 = 16777214
+	PreKeyIDMin       uint32 = 1
+	PreKeyIDMax       uint32 = 16777214
+	PreKeyServerIDMin uint32 = PreKeyIDMin
+	PreKeyServerIDMax uint32 = 16000000
+	PreKeyRetryIDMin  uint32 = PreKeyServerIDMax + 1
+	PreKeyRetryIDMax  uint32 = PreKeyIDMax
+
+	MaxRetryPreKeyCount     = 5000
+	RetryPreKeyCleanupBatch = 1000
 )
 
 type SenderKeyStore interface {
