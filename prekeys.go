@@ -22,6 +22,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/util/keys"
+	"go.mau.fi/whatsmeow/util/logging"
 )
 
 const (
@@ -327,7 +328,7 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) bool {
 	if !initialUpload && cli.lastPreKeyUpload.Add(10*time.Minute).After(time.Now()) {
 		sc, _ := cli.getServerPreKeyCount(ctx)
 		if sc >= WantedPreKeyCount {
-			cli.Log.Debugf("Canceling prekey upload request due to likely race condition")
+			logging.StdOutLogger.Debugf("Canceling prekey upload request due to likely race condition")
 			return false
 		}
 	}
@@ -339,13 +340,13 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) bool {
 	}
 	preKeys, err := cli.Store.PreKeys.GetOrGenPreKeys(ctx, uint32(wantedCount))
 	if err != nil {
-		cli.Log.Errorf("Failed to get prekeys to upload: %v", err)
+		logging.StdOutLogger.Errorf("Failed to get prekeys to upload: %v", err)
 		return false
 	} else if len(preKeys) == 0 {
-		cli.Log.Warnf("No prekeys returned for upload")
+		logging.StdOutLogger.Warnf("No prekeys returned for upload")
 		return false
 	}
-	cli.Log.Infof("Uploading %d new prekeys to server", len(preKeys))
+	logging.StdOutLogger.Infof("Uploading %d new prekeys to server", len(preKeys))
 	_, err = cli.sendIQ(ctx, infoQuery{
 		Namespace: "encrypt",
 		Type:      "set",
@@ -359,13 +360,13 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) bool {
 		},
 	})
 	if err != nil {
-		cli.Log.Errorf("Failed to send request to upload prekeys: %v", err)
+		logging.StdOutLogger.Errorf("Failed to send request to upload prekeys: %v", err)
 		return false
 	}
-	cli.Log.Debugf("Got response to uploading prekeys")
+	logging.StdOutLogger.Infof("Got response to uploading prekeys")
 	err = cli.Store.PreKeys.MarkPreKeysAsUploaded(ctx, preKeyIDs(preKeys))
 	if err != nil {
-		cli.Log.Warnf("Failed to mark prekeys as uploaded: %v", err)
+		logging.StdOutLogger.Warnf("Failed to mark prekeys as uploaded: %v", err)
 		return false
 	}
 	cli.lastPreKeyUpload = time.Now()
@@ -378,14 +379,14 @@ func (cli *Client) fetchPreKeysNoError(ctx context.Context, retryDevices []types
 	}
 	bundlesResp, err := cli.fetchPreKeys(ctx, retryDevices)
 	if err != nil {
-		cli.Log.Warnf("Failed to fetch prekeys for %v with no existing session: %v", retryDevices, err)
+		logging.StdOutLogger.Warnf("Failed to fetch prekeys for %v with no existing session: %v", retryDevices, err)
 		return nil
 	}
 	bundles := make(map[types.JID]*prekey.Bundle, len(retryDevices))
 	for _, jid := range retryDevices {
 		resp := bundlesResp[jid]
 		if resp.err != nil {
-			cli.Log.Warnf("Failed to fetch prekey for %s: %v", jid, resp.err)
+			logging.StdOutLogger.Warnf("Failed to fetch prekey for %s: %v", jid, resp.err)
 			continue
 		}
 		bundles[jid] = resp.bundle

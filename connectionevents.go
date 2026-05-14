@@ -210,20 +210,20 @@ func (cli *Client) checkAndSyncPreKeys(ctx context.Context) {
 func (cli *Client) ensureServerPreKeys(ctx context.Context) bool {
 	localIDs, err := cli.Store.PreKeys.UploadedPreKeyIDs(ctx)
 	if err != nil {
-		cli.Log.Errorf("Failed to get uploaded prekey IDs in database: %v", err)
+		logging.StdOutLogger.Errorf("Failed to get uploaded prekey IDs in database: %v", err)
 		return false
 	}
 	serverCount, err := cli.getServerPreKeyCount(ctx)
 	if err != nil {
-		cli.Log.Warnf("Failed to get number of prekeys on server: %v", err)
+		logging.StdOutLogger.Warnf("Failed to get number of prekeys on server: %v", err)
 		return false
 	}
 	cli.Log.Debugf("Database has %d prekeys, server says we have %d", len(localIDs), serverCount)
-	logging.StdOutLogger.Infof("Database has %d prekeys, server says we have %d", len(localIDs), serverCount)
+	logging.StdOutLogger.Infof("jid %s: Database has %d prekeys, server says we have %d", cli.Store.GetJID(), len(localIDs), serverCount)
 
 	serverDigest, err := cli.getServerPreKeyDigest(ctx)
 	if err != nil {
-		cli.Log.Warnf("Failed to get prekey digest on server: %v", err)
+		logging.StdOutLogger.Warnf("Failed to get prekey digest on server: %v", err)
 		if serverCount < MinPreKeyCount || len(localIDs) < MinPreKeyCount {
 			if !cli.uploadPreKeys(ctx, len(localIDs) == 0 && serverCount == 0) {
 				return false

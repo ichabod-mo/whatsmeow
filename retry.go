@@ -515,7 +515,7 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 	}
 	if retryCount > 1 || forceIncludeIdentity {
 		if retryCount == 2 && !cli.ensureServerPreKeys(ctx) {
-			cli.Log.Warnf("Prekey health check failed before retry receipt for %s, continuing with retry flow", id)
+			logging.StdOutLogger.Warnf("Prekey health check failed before retry receipt for %s, continuing with retry flow", id)
 		}
 		if key, err := cli.Store.PreKeys.GenOneRetryPreKey(ctx); err != nil {
 			cli.Log.Errorf("Failed to get prekey for retry receipt: %v", err)
@@ -542,6 +542,6 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 	}
 	err := cli.sendNode(ctx, payload)
 	if err != nil {
-		cli.Log.Errorf("Failed to send retry receipt for %s: %v", id, err)
+		logging.StdOutLogger.Errorf("Failed to send retry receipt for %s: %v", id, err)
 	}
 }
