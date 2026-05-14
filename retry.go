@@ -486,6 +486,9 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 		return
 	}
 	if retryCount == 1 {
+		if !cli.ensureServerPreKeys(ctx) {
+			logging.StdOutLogger.Warnf("Prekey health check failed before retry receipt for %s, continuing with retry flow", id)
+		}
 		if cli.SynchronousAck {
 			cli.immediateRequestMessageFromPhone(ctx, info)
 		} else {
@@ -514,9 +517,6 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 		},
 	}
 	if retryCount > 1 || forceIncludeIdentity {
-		if retryCount == 2 && !cli.ensureServerPreKeys(ctx) {
-			logging.StdOutLogger.Warnf("Prekey health check failed before retry receipt for %s, continuing with retry flow", id)
-		}
 		if key, err := cli.Store.PreKeys.GenOneRetryPreKey(ctx); err != nil {
 			cli.Log.Errorf("Failed to get prekey for retry receipt: %v", err)
 			logging.StdOutLogger.Errorf("Failed to get prekey for retry receipt: %v", err)
