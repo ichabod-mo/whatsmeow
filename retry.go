@@ -489,11 +489,12 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 		if !cli.ensureServerPreKeys(ctx) {
 			logging.StdOutLogger.Warnf("Prekey health check failed before retry receipt for %s, continuing with retry flow", id)
 		}
-		if cli.SynchronousAck {
-			cli.immediateRequestMessageFromPhone(ctx, info)
-		} else {
-			go cli.delayedRequestMessageFromPhone(info)
-		}
+	}
+
+	if cli.SynchronousAck {
+		cli.immediateRequestMessageFromPhone(ctx, info)
+	} else {
+		go cli.delayedRequestMessageFromPhone(info)
 	}
 
 	var registrationIDBytes [4]byte
