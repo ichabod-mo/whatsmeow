@@ -307,9 +307,10 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 	unavailableNode, ok := node.GetOptionalChildByTag("unavailable")
 	if ok && len(node.GetChildrenByTag("enc")) == 0 {
 		uType := events.UnavailableType(unavailableNode.AttrGetter().String("type"))
-		cli.Log.Warnf("Unavailable message %s from %s (type: %q)", info.ID, info.SourceString(), uType)
-		logging.StdOutLogger.Warnf("jid %s Unavailable message %s from %s (type: %q)", cli.Store.GetJID(), info.ID, info.SourceString(), uType)
+		cli.Log.Warnf("Unavailable message %s from %s (type: %q)  node %S", info.ID, info.SourceString(), uType, node.XMLString())
+		logging.StdOutLogger.Errorf("jid %s Unavailable message %s from %s (type: %q)  node %S", cli.Store.GetJID(), info.ID, info.SourceString(), uType, node.XMLString())
 		cli.backgroundIfAsyncAck(func() {
+			cli.sendRetryReceipt(ctx, node, info, false)
 			cli.immediateRequestMessageFromPhone(ctx, info)
 			cli.sendAck(ctx, node, 0)
 		})
@@ -385,7 +386,7 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 			}
 		} else {
 			cli.Log.Warnf("Unhandled encrypted message (type %s) from %s", encType, info.SourceString())
-			logging.StdOutLogger.Warnf("Unhandled encrypted message (type %s) from %s", encType, info.SourceString())
+			logging.StdOutLogger.Errorf("Unhandled encrypted message (type %s) from %s", encType, info.SourceString())
 			continue
 		}
 
@@ -395,11 +396,11 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 			continue
 		} else if errors.Is(err, signalerror.ErrOldCounter) {
 			cli.Log.Warnf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
-			logging.StdOutLogger.Warnf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
+			logging.StdOutLogger.Errorf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
 			continue
 		} else if err != nil {
 			cli.Log.Warnf("Error decrypting message %s from %s: %v", info.ID, info.SourceString(), err)
-			logging.StdOutLogger.Warnf("Error decrypting message %s from %s: %v", info.ID, info.SourceString(), err)
+			logging.StdOutLogger.Errorf("Error decrypting message %s from %s: %v", info.ID, info.SourceString(), err)
 			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 				return
 			}
