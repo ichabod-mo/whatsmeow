@@ -33,6 +33,7 @@ const (
 	EncSecretReportToken   MsgSecretType = "Report Token"
 	EncSecretEventResponse MsgSecretType = "Event Response"
 	EncSecretEventEdit     MsgSecretType = "Event Edit"
+	EncSecretMessageEdit   MsgSecretType = "Message Edit"
 	EncSecretBotMsg        MsgSecretType = "Bot Message"
 )
 
@@ -256,6 +257,170 @@ func (cli *Client) DecryptSecretEncryptedMessage(ctx context.Context, evt *event
 		msg.MessageContextInfo = evt.Message.MessageContextInfo
 	}
 	return &msg, nil
+}
+
+func (cli *Client) DecryptMessageEditSecretEncryptedMessage(ctx context.Context, evt *events.Message) (*waE2E.Message, error) {
+	msg, ok := getMessageEditSecretEncryptedMessage(&evt.Info, evt.Message)
+	if !ok {
+		return nil, ErrNotSecretEncryptedMessage
+	}
+	return cli.decryptMessageEditSecretEncryptedMessage(ctx, &evt.Info, msg)
+}
+
+func (cli *Client) maybeDecryptSecretEncryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (*waE2E.Message, bool, error) {
+	secretMsg, ok := getMessageEditSecretEncryptedMessage(info, msg)
+	if !ok {
+		return msg, false, nil
+	}
+	decrypted, err := cli.decryptMessageEditSecretEncryptedMessage(ctx, info, secretMsg)
+	return decrypted, true, err
+}
+
+func getMessageEditSecretEncryptedMessage(info *types.MessageInfo, msg *waE2E.Message) (*waE2E.Message, bool) {
+	if msg.GetSecretEncryptedMessage() != nil {
+		return msg, true
+	}
+	deviceSent := msg.GetDeviceSentMessage()
+	if innerMsg := deviceSent.GetMessage(); innerMsg.GetSecretEncryptedMessage() != nil {
+		if info != nil {
+			info.DeviceSentMeta = &types.DeviceSentMeta{
+				DestinationJID: deviceSent.GetDestinationJID(),
+				Phash:          deviceSent.GetPhash(),
+			}
+		}
+		return innerMsg, true
+	}
+	return nil, false
+}
+
+func (cli *Client) decryptMessageEditSecretEncryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (*waE2E.Message, error) {
+	if info == nil {
+		return nil, fmt.Errorf("message info is nil")
+	}
+	encMessage := msg.GetSecretEncryptedMessage()
+	if encMessage == nil {
+		return nil, ErrNotSecretEncryptedMessage
+	}
+	if encMessage.GetSecretEncType() != waE2E.SecretEncryptedMessage_MESSAGE_EDIT {
+		return nil, fmt.Errorf("unsupported secret enc type: %s", encMessage.GetSecretEncType().String())
+	}
+	targetKey := encMessage.GetTargetMessageKey()
+	if targetKey.GetID() == "" {
+		return nil, fmt.Errorf("secret encrypted message is missing target message ID")
+	}
+	plaintext, err := cli.decryptMessageEditSecret(ctx, info, encMessage, targetKey)
+	if err != nil {
+		return nil, err
+	}
+	var decrypted waE2E.Message
+	err = proto.Unmarshal(plaintext, &decrypted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode message protobuf: %w", err)
+	}
+	if msg.MessageContextInfo != nil && decrypted.MessageContextInfo == nil {
+		decrypted.MessageContextInfo = msg.MessageContextInfo
+	}
+	return &decrypted, nil
+}
+
+func (cli *Client) decryptMessageEditSecret(ctx context.Context, info *types.MessageInfo, encMessage messageEncryptedSecret, targetKey *waCommon.MessageKey) ([]byte, error) {
+	if cli == nil {
+		return nil, ErrClientIsNil
+	}
+	jidCandidates := cli.messageEditJIDCandidates(info, targetKey)
+	if len(jidCandidates) == 0 {
+		return nil, fmt.Errorf("no JID candidates for message edit secret")
+	}
+	chatCandidates := messageEditChatCandidates(info, targetKey)
+	if len(chatCandidates) == 0 {
+		return nil, fmt.Errorf("no chat candidates for message edit secret")
+	}
+	var lastDecryptErr error
+	var foundMessageSecret bool
+	for _, chat := range chatCandidates {
+		for _, origSender := range jidCandidates {
+			baseEncKey, realOrigSender, err := cli.Store.MsgSecrets.GetMessageSecret(ctx, chat, origSender, targetKey.GetID())
+			if err != nil {
+				return nil, fmt.Errorf("failed to get original message secret key: %w", err)
+			} else if baseEncKey == nil {
+				continue
+			}
+			foundMessageSecret = true
+			if realOrigSender.IsEmpty() {
+				realOrigSender = origSender
+			}
+			realOrigSender = cli.normalizeMessageSecretSender(ctx, realOrigSender)
+			for _, modificationSender := range jidCandidates {
+				secretKey, additionalData := generateMsgSecretKey(EncSecretMessageEdit, modificationSender, targetKey.GetID(), realOrigSender, baseEncKey)
+				plaintext, err := gcmutil.Decrypt(secretKey, encMessage.GetEncIV(), encMessage.GetEncPayload(), additionalData)
+				if err == nil {
+					return plaintext, nil
+				}
+				lastDecryptErr = err
+			}
+		}
+	}
+	if !foundMessageSecret {
+		return nil, ErrOriginalMessageSecretNotFound
+	}
+	return nil, fmt.Errorf("failed to decrypt secret message: %w", lastDecryptErr)
+}
+
+func (cli *Client) messageEditJIDCandidates(info *types.MessageInfo, targetKey *waCommon.MessageKey) []types.JID {
+	var candidates []types.JID
+	candidates = appendJIDCandidate(candidates, info.MsgMetaInfo.TargetSender)
+	if targetKey.GetFromMe() {
+		candidates = appendJIDCandidate(candidates, cli.getOwnLID())
+		candidates = appendJIDCandidate(candidates, cli.getOwnID())
+	}
+	candidates = appendJIDCandidate(candidates, info.Sender)
+	candidates = appendJIDCandidate(candidates, info.SenderAlt)
+	if targetKey.GetParticipant() != "" {
+		if participant, err := types.ParseJID(targetKey.GetParticipant()); err == nil {
+			candidates = appendJIDCandidate(candidates, participant)
+		}
+	}
+	if targetKey.GetRemoteJID() != "" {
+		if remote, err := types.ParseJID(targetKey.GetRemoteJID()); err == nil {
+			candidates = appendJIDCandidate(candidates, remote)
+		}
+	}
+	return candidates
+}
+
+func messageEditChatCandidates(info *types.MessageInfo, targetKey *waCommon.MessageKey) []types.JID {
+	var candidates []types.JID
+	candidates = appendJIDCandidate(candidates, info.Chat)
+	if targetKey.GetRemoteJID() != "" {
+		if remote, err := types.ParseJID(targetKey.GetRemoteJID()); err == nil {
+			candidates = appendJIDCandidate(candidates, remote)
+		}
+	}
+	return candidates
+}
+
+func appendJIDCandidate(candidates []types.JID, candidate types.JID) []types.JID {
+	if candidate.IsEmpty() {
+		return candidates
+	}
+	candidate = candidate.ToNonAD()
+	for _, existing := range candidates {
+		if existing == candidate {
+			return candidates
+		}
+	}
+	return append(candidates, candidate)
+}
+
+func (cli *Client) normalizeMessageSecretSender(ctx context.Context, sender types.JID) types.JID {
+	if sender.Server != types.DefaultUserServer || cli == nil || cli.Store == nil || cli.Store.LIDs == nil {
+		return sender
+	}
+	lid, err := cli.Store.LIDs.GetLIDForPN(ctx, sender)
+	if err != nil || lid.IsEmpty() {
+		return sender
+	}
+	return lid
 }
 
 func getKeyFromInfo(msgInfo *types.MessageInfo) *waCommon.MessageKey {
