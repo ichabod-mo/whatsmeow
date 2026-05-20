@@ -71,13 +71,24 @@ func (cli *Client) fetchAppState(ctx context.Context, name appstate.WAPatchName,
 		eventsToDispatchPtr = nil
 	}
 	for hasMore {
+		flags := false
 		patches, err := cli.fetchAppStatePatches(ctx, name, state.Version, wantSnapshot)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch app state %s patches: %w", name, err)
+			flags = true
 		} else if !wantSnapshot && patches.Snapshot != nil {
-			return nil, fmt.Errorf("server unexpectedly returned snapshot for %s without asking", name)
+			flags = true
 		} else if patches.Snapshot != nil && state != (appstate.HashState{}) {
-			return nil, fmt.Errorf("unexpected non-empty input state (v%d) for %s when applying snapshot", state.Version, name)
+			flags = true
+		}
+		if flags {
+			patches, err = cli.fetchAppStatePatchesNew(ctx, name, state.Version, wantSnapshot)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch app state %s patches: %w", name, err)
+			} else if !wantSnapshot && patches.Snapshot != nil {
+				return nil, fmt.Errorf("server unexpectedly returned snapshot for %s without asking", name)
+			} else if patches.Snapshot != nil && state != (appstate.HashState{}) {
+				return nil, fmt.Errorf("unexpected non-empty input state (v%d) for %s when applying snapshot", state.Version, name)
+			}
 		}
 		wantSnapshot = false
 		hasMore = patches.HasMorePatches
@@ -442,6 +453,39 @@ func (cli *Client) fetchAppStatePatches(ctx context.Context, name appstate.WAPat
 		To:        types.ServerJID,
 		Content: []waBinary.Node{{
 			Tag: "sync",
+			Content: []waBinary.Node{{
+				Tag:   "collection",
+				Attrs: attrs,
+			}},
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	collection, ok := resp.GetOptionalChildByTag("sync", "collection")
+	if !ok {
+		return nil, &ElementMissingError{Tag: "collection", In: "app state patch response"}
+	}
+	return appstate.ParsePatchList(ctx, &collection, cli.downloadExternalAppStateBlob)
+}
+
+func (cli *Client) fetchAppStatePatchesNew(ctx context.Context, name appstate.WAPatchName, fromVersion uint64, snapshot bool) (*appstate.PatchList, error) {
+	attrs := waBinary.Attrs{
+		"name": string(name),
+		"order": "0",
+	}
+	if !snapshot {
+		attrs["version"] = fromVersion
+	}
+	resp, err := cli.sendIQ(ctx, infoQuery{
+		Namespace: "w:sync:app:state",
+		Type:      "set",
+		To:        types.ServerJID,
+		Content: []waBinary.Node{{
+			Tag: "sync",
+			Attrs: waBinary.Attrs{
+				"data_namespace": "3",
+			},
 			Content: []waBinary.Node{{
 				Tag:   "collection",
 				Attrs: attrs,

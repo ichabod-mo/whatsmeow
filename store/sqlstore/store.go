@@ -695,14 +695,30 @@ func (s *SQLStore) PutContactName(ctx context.Context, user types.JID, firstName
 
 const contactBatchSize = 300
 
+func deduplicateContactNamesKeepLast(contacts []store.ContactEntry) []store.ContactEntry {
+	if len(contacts) < 2 {
+		return contacts
+	}
+	lastIndexes := make(map[types.JID]int, len(contacts))
+	for i, contact := range contacts {
+		lastIndexes[contact.JID] = i
+	}
+	output := contacts[:0]
+	for i, contact := range contacts {
+		if lastIndexes[contact.JID] == i {
+			output = append(output, contact)
+		}
+	}
+	clear(contacts[len(output):])
+	return output
+}
+
 func (s *SQLStore) PutAllContactNames(ctx context.Context, contacts []store.ContactEntry) error {
 	if len(contacts) == 0 {
 		return nil
 	}
 	origLen := len(contacts)
-	contacts = exslices.DeduplicateUnsortedOverwriteFunc(contacts, func(t store.ContactEntry) types.JID {
-		return t.JID
-	})
+	contacts = deduplicateContactNamesKeepLast(contacts)
 	if origLen != len(contacts) {
 		s.log.Warnf("%d duplicate contacts found in PutAllContactNames", origLen-len(contacts))
 	}
