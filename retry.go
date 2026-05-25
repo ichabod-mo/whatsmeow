@@ -486,11 +486,15 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 		return
 	}
 	if retryCount == 1 {
-		if cli.SynchronousAck {
-			cli.immediateRequestMessageFromPhone(ctx, info)
-		} else {
-			go cli.delayedRequestMessageFromPhone(info)
+		if !cli.ensureServerPreKeys(ctx) {
+			logging.StdOutLogger.Warnf("Prekey health check failed before retry receipt for %s, continuing with retry flow", id)
 		}
+	}
+
+	if cli.SynchronousAck {
+		cli.immediateRequestMessageFromPhone(ctx, info)
+	} else {
+		go cli.delayedRequestMessageFromPhone(info)
 	}
 
 	var registrationIDBytes [4]byte
@@ -514,7 +518,7 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 		},
 	}
 	if retryCount > 1 || forceIncludeIdentity {
-		if key, err := cli.Store.PreKeys.GenOnePreKey(ctx); err != nil {
+		if key, err := cli.Store.PreKeys.GenOneRetryPreKey(ctx); err != nil {
 			cli.Log.Errorf("Failed to get prekey for retry receipt: %v", err)
 			logging.StdOutLogger.Errorf("Failed to get prekey for retry receipt: %v", err)
 		} else if deviceIdentity, err := proto.Marshal(cli.Store.Account); err != nil {
@@ -539,6 +543,6 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 	}
 	err := cli.sendNode(ctx, payload)
 	if err != nil {
-		cli.Log.Errorf("Failed to send retry receipt for %s: %v", id, err)
+		logging.StdOutLogger.Errorf("Failed to send retry receipt for %s: %v", id, err)
 	}
 }
