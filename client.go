@@ -174,6 +174,7 @@ type Client struct {
 	// This should NOT be used for WhatsApp (to change the OS name, update fields in store.BaseClientPayload directly).
 	GetClientPayload func() *waWa6.ClientPayload
 	QRClientType     PairClientType
+	QRLoginMode      QRLoginMode
 
 	// Should untrusted identity errors be handled automatically? If true, the stored identity and existing signal
 	// sessions will be removed on untrusted identity errors, and an events.IdentityChange will be dispatched.
@@ -526,6 +527,37 @@ func (cli *Client) connect(ctx context.Context) error {
 	return cli.unlockedConnect(ctx)
 }
 
+type noiseHandshakeFunc func(context.Context, *socket.FrameSocket, keys.KeyPair) error
+
+func (cli *Client) makeFrameSocket(client *http.Client) *socket.FrameSocket {
+	fs := socket.NewFrameSocket(cli.Log.Sub("Socket"), client)
+	if cli.MessengerConfig != nil {
+		fs.URL = cli.MessengerConfig.WebsocketURL
+		fs.HTTPHeaders.Set("Origin", cli.MessengerConfig.BaseURL)
+		fs.HTTPHeaders.Set("User-Agent", cli.MessengerConfig.UserAgent)
+		fs.HTTPHeaders.Set("Cache-Control", "no-cache")
+		fs.HTTPHeaders.Set("Pragma", "no-cache")
+		//fs.HTTPHeaders.Set("Sec-Fetch-Dest", "empty")
+		//fs.HTTPHeaders.Set("Sec-Fetch-Mode", "websocket")
+		//fs.HTTPHeaders.Set("Sec-Fetch-Site", "cross-site")
+	}
+	return fs
+}
+
+func (cli *Client) connectWithHandshake(ctx context.Context, client *http.Client, handshake noiseHandshakeFunc) error {
+	fs := cli.makeFrameSocket(client)
+	if err := fs.Connect(ctx); err != nil {
+		fs.Close(0)
+		return err
+	} else if err = handshake(ctx, fs, *keys.NewKeyPair()); err != nil {
+		fs.Close(0)
+		return fmt.Errorf("noise handshake failed: %w", err)
+	}
+	go cli.keepAliveLoop(ctx, fs.Context())
+	go cli.handlerQueueLoop(ctx, fs.Context())
+	return nil
+}
+
 func (cli *Client) unlockedConnect(ctx context.Context) error {
 	if cli.Store.Deleted {
 		return store.ErrDeviceDeleted
@@ -543,27 +575,14 @@ func (cli *Client) unlockedConnect(ctx context.Context) error {
 	if cli.Store.ID == nil {
 		client = cli.preLoginHTTP
 	}
-	fs := socket.NewFrameSocket(cli.Log.Sub("Socket"), client)
-	if cli.MessengerConfig != nil {
-		fs.URL = cli.MessengerConfig.WebsocketURL
-		fs.HTTPHeaders.Set("Origin", cli.MessengerConfig.BaseURL)
-		fs.HTTPHeaders.Set("User-Agent", cli.MessengerConfig.UserAgent)
-		fs.HTTPHeaders.Set("Cache-Control", "no-cache")
-		fs.HTTPHeaders.Set("Pragma", "no-cache")
-		//fs.HTTPHeaders.Set("Sec-Fetch-Dest", "empty")
-		//fs.HTTPHeaders.Set("Sec-Fetch-Mode", "websocket")
-		//fs.HTTPHeaders.Set("Sec-Fetch-Site", "cross-site")
+	if cli.shouldUseXXKEMQRLogin() {
+		err := cli.connectWithHandshake(ctx, client, cli.doXXKEMHandshake)
+		if err == nil {
+			return nil
+		}
+		cli.Log.Warnf("XXKEM QR login attempt failed, falling back to classic QR login: %v", err)
 	}
-	if err := fs.Connect(ctx); err != nil {
-		fs.Close(0)
-		return err
-	} else if err = cli.doHandshake(ctx, fs, *keys.NewKeyPair()); err != nil {
-		fs.Close(0)
-		return fmt.Errorf("noise handshake failed: %w", err)
-	}
-	go cli.keepAliveLoop(ctx, fs.Context())
-	go cli.handlerQueueLoop(ctx, fs.Context())
-	return nil
+	return cli.connectWithHandshake(ctx, client, cli.doHandshake)
 }
 
 // IsLoggedIn returns true after the client is successfully connected and authenticated on WhatsApp.
@@ -831,7 +850,7 @@ func (cli *Client) handleFrame(ctx context.Context, data []byte) {
 		return
 	}
 	cli.recvLog.Debugf("%s", node.XMLString())
-	if strings.Contains(node.XMLString(),"stream:error"){
+	if strings.Contains(node.XMLString(), "stream:error") {
 		jid := cli.getOwnID().String()
 		logging.StdOutLogger.Infof(jid + ": " + node.XMLString())
 	}

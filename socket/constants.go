@@ -25,6 +25,7 @@ const (
 
 const (
 	NoiseStartPattern = "Noise_XX_25519_AESGCM_SHA256\x00\x00\x00\x00"
+	NoiseXXKEMPattern = "Noise_XXkem_25519_MLKEM512_AESGCM_SHA256"
 
 	WAMagicValue = 6
 )

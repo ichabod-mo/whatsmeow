@@ -102,6 +102,11 @@ func (nh *NoiseHandshake) MixSharedSecretIntoKey(priv, pub [32]byte) error {
 	return nh.MixIntoKey(secret)
 }
 
+func (nh *NoiseHandshake) MixKEMSecret(ciphertext, sharedSecret []byte) error {
+	nh.Authenticate(ciphertext)
+	return nh.MixIntoKey(sharedSecret)
+}
+
 func (nh *NoiseHandshake) MixIntoKey(data []byte) error {
 	nh.counter = 0
 	write, read, err := nh.extractAndExpand(nh.salt, data)

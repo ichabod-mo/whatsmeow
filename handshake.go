@@ -7,11 +7,13 @@
 package whatsmeow
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"fmt"
 	"time"
 
+	"github.com/cloudflare/circl/kem/mlkem/mlkem512"
 	"go.mau.fi/libsignal/ecc"
 	"google.golang.org/protobuf/proto"
 
@@ -24,17 +26,31 @@ import (
 const NoiseHandshakeResponseTimeout = 20 * time.Second
 const WACertIssuerSerial = 0
 
+var xxkemTLVAlgorithm = []byte("MLKEM512")
+
 var WACertPubKey = [...]byte{0x14, 0x23, 0x75, 0x57, 0x4d, 0xa, 0x58, 0x71, 0x66, 0xaa, 0xe7, 0x1e, 0xbe, 0x51, 0x64, 0x37, 0xc4, 0xa2, 0x8b, 0x73, 0xe3, 0x69, 0x5c, 0x6c, 0xe1, 0xf7, 0xf9, 0x54, 0x5d, 0xa8, 0xee, 0x6b}
 
 // doHandshake implements the Noise_XX_25519_AESGCM_SHA256 handshake for the WhatsApp web API.
 func (cli *Client) doHandshake(ctx context.Context, fs *socket.FrameSocket, ephemeralKP keys.KeyPair) error {
+	return cli.doHandshakeWithConfig(ctx, fs, ephemeralKP, socket.NoiseStartPattern, nil)
+}
+
+func (cli *Client) doXXKEMHandshake(ctx context.Context, fs *socket.FrameSocket, ephemeralKP keys.KeyPair) error {
+	return cli.doHandshakeWithConfig(ctx, fs, ephemeralKP, socket.NoiseXXKEMPattern, waWa6.HandshakeMessage_XXKEM.Enum())
+}
+
+func (cli *Client) doHandshakeWithConfig(ctx context.Context, fs *socket.FrameSocket, ephemeralKP keys.KeyPair, noisePattern string, pqMode *waWa6.HandshakeMessage_HandshakePqMode) error {
 	nh := socket.NewNoiseHandshake()
-	nh.Start(socket.NoiseStartPattern, fs.Header)
+	nh.Start(noisePattern, fs.Header)
 	nh.Authenticate(ephemeralKP.Pub[:])
+	clientHello := &waWa6.HandshakeMessage_ClientHello{
+		Ephemeral: ephemeralKP.Pub[:],
+	}
+	if pqMode != nil {
+		clientHello.PqMode = pqMode
+	}
 	data, err := proto.Marshal(&waWa6.HandshakeMessage{
-		ClientHello: &waWa6.HandshakeMessage_ClientHello{
-			Ephemeral: ephemeralKP.Pub[:],
-		},
+		ClientHello: clientHello,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal handshake message: %w", err)
@@ -82,7 +98,24 @@ func (cli *Client) doHandshake(ctx context.Context, fs *socket.FrameSocket, ephe
 	certDecrypted, err := nh.Decrypt(certificateCiphertext)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt noise certificate ciphertext: %w", err)
-	} else if err = verifyServerCert(certDecrypted, staticDecrypted); err != nil {
+	}
+	var kemCiphertext []byte
+	if pqMode != nil {
+		kemPublicKey, certificate, err := parseXXKEMServerPayload(certDecrypted)
+		if err != nil {
+			return fmt.Errorf("failed to parse XXKEM server payload: %w", err)
+		}
+		kemSharedSecret, ciphertext, err := encapsulateMLKEM512(kemPublicKey)
+		if err != nil {
+			return fmt.Errorf("failed to encapsulate ML-KEM-512 key: %w", err)
+		}
+		if err = nh.MixKEMSecret(ciphertext, kemSharedSecret); err != nil {
+			return fmt.Errorf("failed to mix ML-KEM-512 key in: %w", err)
+		}
+		kemCiphertext = ciphertext
+		certDecrypted = certificate
+	}
+	if err = verifyServerCert(certDecrypted, staticDecrypted); err != nil {
 		return fmt.Errorf("failed to verify server cert: %w", err)
 	}
 
@@ -104,11 +137,15 @@ func (cli *Client) doHandshake(ctx context.Context, fs *socket.FrameSocket, ephe
 		return fmt.Errorf("failed to marshal client finish payload: %w", err)
 	}
 	encryptedClientFinishPayload := nh.Encrypt(clientFinishPayloadBytes)
+	clientFinish := &waWa6.HandshakeMessage_ClientFinish{
+		Static:  encryptedPubkey,
+		Payload: encryptedClientFinishPayload,
+	}
+	if kemCiphertext != nil {
+		clientFinish.ExtendedCiphertext = kemCiphertext
+	}
 	data, err = proto.Marshal(&waWa6.HandshakeMessage{
-		ClientFinish: &waWa6.HandshakeMessage_ClientFinish{
-			Static:  encryptedPubkey,
-			Payload: encryptedClientFinishPayload,
-		},
+		ClientFinish: clientFinish,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal handshake finish message: %w", err)
@@ -126,6 +163,54 @@ func (cli *Client) doHandshake(ctx context.Context, fs *socket.FrameSocket, ephe
 	cli.socket = ns
 
 	return nil
+}
+
+func parseXXKEMServerPayload(payload []byte) (publicKey, certificate []byte, err error) {
+	tlvType, algorithm, remaining, err := readXXKEMTLV(payload)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read algorithm TLV: %w", err)
+	} else if tlvType != 1 {
+		return nil, nil, fmt.Errorf("unexpected algorithm TLV type %d", tlvType)
+	} else if !bytes.Equal(algorithm, xxkemTLVAlgorithm) {
+		return nil, nil, fmt.Errorf("unexpected KEM algorithm %q", algorithm)
+	}
+
+	tlvType, publicKey, certificate, err = readXXKEMTLV(remaining)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read public key TLV: %w", err)
+	} else if tlvType != 2 {
+		return nil, nil, fmt.Errorf("unexpected public key TLV type %d", tlvType)
+	} else if len(publicKey) != mlkem512.PublicKeySize {
+		return nil, nil, fmt.Errorf("unexpected public key length %d (expected %d)", len(publicKey), mlkem512.PublicKeySize)
+	} else if len(certificate) == 0 {
+		return nil, nil, fmt.Errorf("missing certificate after public key TLV")
+	}
+	return publicKey, certificate, nil
+}
+
+func readXXKEMTLV(data []byte) (tlvType byte, value, remaining []byte, err error) {
+	if len(data) < 3 {
+		return 0, nil, nil, fmt.Errorf("TLV data too short")
+	}
+	length := int(data[1])<<8 | int(data[2])
+	if len(data) < 3+length {
+		return 0, nil, nil, fmt.Errorf("TLV length %d exceeds remaining data %d", length, len(data)-3)
+	}
+	return data[0], data[3 : 3+length], data[3+length:], nil
+}
+
+func encapsulateMLKEM512(publicKeyBytes []byte) (sharedSecret, ciphertext []byte, err error) {
+	if len(publicKeyBytes) != mlkem512.PublicKeySize {
+		return nil, nil, fmt.Errorf("unexpected public key length %d (expected %d)", len(publicKeyBytes), mlkem512.PublicKeySize)
+	}
+	var publicKey mlkem512.PublicKey
+	if err = publicKey.Unpack(publicKeyBytes); err != nil {
+		return nil, nil, fmt.Errorf("failed to unpack public key: %w", err)
+	}
+	sharedSecret = make([]byte, mlkem512.SharedKeySize)
+	ciphertext = make([]byte, mlkem512.CiphertextSize)
+	publicKey.EncapsulateTo(ciphertext, sharedSecret, nil)
+	return sharedSecret, ciphertext, nil
 }
 
 func checkCertValidity(cert *waCert.CertChain_NoiseCertificate_Details) error {

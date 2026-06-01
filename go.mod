@@ -6,6 +6,7 @@ toolchain go1.26.3
 
 require (
 	github.com/beeper/argo-go v1.1.2
+	github.com/cloudflare/circl v1.6.3
 	github.com/coder/websocket v1.8.14
 	github.com/google/uuid v1.6.0
 	github.com/rs/zerolog v1.35.1
