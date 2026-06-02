@@ -310,7 +310,9 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 		cli.Log.Warnf("Unavailable message %s from %s (type: %q)  node %s", info.ID, info.SourceString(), uType, node.XMLString())
 		logging.StdOutLogger.Errorf("jid %s Unavailable message %s from %s (type: %q)  node %s", cli.Store.GetJID(), info.ID, info.SourceString(), uType, node.XMLString())
 		cli.backgroundIfAsyncAck(func() {
-			cli.sendRetryReceipt(ctx, node, info, false)
+			if uType != events.UnavailableTypeViewOnce {
+				cli.sendRetryReceipt(ctx, node, info, false)
+			}
 			cli.immediateRequestMessageFromPhone(ctx, info)
 			cli.sendAck(ctx, node, 0)
 		})
