@@ -12,7 +12,6 @@ import (
 	"time"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
-	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -24,15 +23,6 @@ const (
 	// Matches AB prop tctoken_num_buckets.
 	tcTokenNumBuckets      = 4
 	tcTokenDBPruneInterval = 24 * time.Hour
-)
-
-var (
-	// TCTokenRequestTimeout is how long SendMessage waits for a freshly requested tctoken
-	// to arrive via the privacy_token notification before falling back to cstoken/no token.
-	TCTokenRequestTimeout = 3 * time.Second
-	// TCTokenRequestPollInterval controls how often the privacy token store is checked
-	// after requesting a fresh tctoken.
-	TCTokenRequestPollInterval = 200 * time.Millisecond
 )
 
 func currentTCTokenCutoffTimestamp() time.Time {
@@ -126,7 +116,10 @@ func (cli *Client) unlockedCleanupTCTokenSenderTSMap() {
 	}
 }
 
-func (cli *Client) loadStoredTCToken(ctx context.Context, storageJID types.JID) ([]byte, error) {
+// ensureTCToken returns a stored non-expired tctoken for the given JID, if available.
+func (cli *Client) ensureTCToken(ctx context.Context, jid types.JID) (token []byte, err error) {
+	cli.deleteExpiredPrivacyTokens()
+	storageJID := cli.resolveTCTokenStorageLID(ctx, jid)
 	existing, err := cli.Store.PrivacyTokens.GetPrivacyToken(ctx, storageJID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get privacy token: %w", err)
@@ -139,101 +132,7 @@ func (cli *Client) loadStoredTCToken(ctx context.Context, storageJID types.JID) 
 		return existing.Token, nil
 	}
 	return nil, nil
-}
-
-// ensureTCToken returns a stored non-expired tctoken for the given JID, requesting one first if needed.
-func (cli *Client) ensureTCToken(ctx context.Context, jid types.JID) (token []byte, err error) {
-	cli.deleteExpiredPrivacyTokens()
-	storageJID := cli.resolveTCTokenStorageLID(ctx, jid)
-	token, err = cli.loadStoredTCToken(ctx, storageJID)
-	if err != nil {
-		return nil, err
-	}
-	if len(token) > 0 || !shouldSendTCTokenInChatAction(jid) {
-		return token, nil
-	}
-
-	return cli.requestAndLoadTCToken(ctx, storageJID)
-}
-
-func (cli *Client) requestAndLoadTCToken(ctx context.Context, storageJID types.JID) ([]byte, error) {
-	senderTimestamp := time.Now()
-	resp, err := cli.issuePrivacyToken(ctx, storageJID, senderTimestamp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to request privacy token: %w", err)
-	}
-	cli.setTCTokenSenderTS(storageJID, senderTimestamp)
-
-	if token, err := cli.storeTCTokenFromIQResponse(ctx, storageJID, senderTimestamp, resp); err != nil {
-		cli.Log.Debugf("Failed to parse tctoken response for %s: %v", storageJID, err)
-	} else if len(token) > 0 {
-		return token, nil
-	}
-
-	token, err := cli.loadStoredTCToken(ctx, storageJID)
-	if err != nil || len(token) > 0 || TCTokenRequestTimeout <= 0 {
-		return token, err
-	}
-	pollInterval := TCTokenRequestPollInterval
-	if pollInterval <= 0 {
-		pollInterval = 200 * time.Millisecond
-	}
-
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-	timeout := time.NewTimer(TCTokenRequestTimeout)
-	defer timeout.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-			token, err = cli.loadStoredTCToken(ctx, storageJID)
-			if err != nil || len(token) > 0 {
-				return token, err
-			}
-		case <-timeout.C:
-			return nil, nil
-		}
-	}
-}
-
-func (cli *Client) storeTCTokenFromIQResponse(ctx context.Context, storageJID types.JID, senderTimestamp time.Time, resp *waBinary.Node) ([]byte, error) {
-	if resp == nil {
-		return nil, nil
-	}
-	tokens := resp.GetChildByTag("tokens")
-	if tokens.Tag != "tokens" {
-		return nil, nil
-	}
-	for _, child := range tokens.GetChildren() {
-		if child.Tag != "token" {
-			continue
-		}
-		ag := child.AttrGetter()
-		if ag.String("type") != "trusted_contact" {
-			continue
-		}
-		token, ok := child.Content.([]byte)
-		if !ok || len(token) == 0 {
-			continue
-		}
-		timestamp := ag.UnixTime("t")
-		if timestamp.IsZero() {
-			timestamp = time.Now()
-		}
-		if err := cli.Store.PrivacyTokens.PutPrivacyTokens(ctx, store.PrivacyToken{
-			User:            storageJID,
-			Token:           token,
-			Timestamp:       timestamp,
-			SenderTimestamp: senderTimestamp,
-		}); err != nil {
-			return nil, err
-		}
-		return token, nil
-	}
-	return nil, nil
+	// return []byte{0x04, 0x01, 0x2D, 0x64, 0x20, 0xC7, 0xA8, 0x42, 0x4F, 0xA2, 0xCB}, nil
 }
 
 func (cli *Client) deleteExpiredPrivacyTokens() {
