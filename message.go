@@ -1031,7 +1031,7 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 		if chatJID.IsEmpty() {
 			continue
 		}
-		if chatJID.Server == types.DefaultUserServer && conv.GetTcToken() != nil {
+		if conv.GetTcToken() != nil {
 			privacyTokens = append(privacyTokens, store.PrivacyToken{
 				User:            chatJID,
 				Token:           conv.GetTcToken(),
@@ -1073,7 +1073,7 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
 			cli.Log.Infof("Stored %d message secret keys from history sync", len(secrets))
 		}
 	}
-	batchSize :=900
+	batchSize := 900
 	for i := 0; i < len(privacyTokens); i += batchSize {
 		end := i + batchSize
 		if end > len(privacyTokens) {
