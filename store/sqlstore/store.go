@@ -1245,15 +1245,22 @@ const (
 		WHERE EXCLUDED.timestamp >= whatsmeow_privacy_tokens.timestamp
 	`
 	getPrivacyToken = `
-		SELECT token, timestamp, sender_timestamp FROM whatsmeow_privacy_tokens WHERE our_jid=$1 AND (their_jid=$2 OR their_jid=(
+		SELECT token, timestamp, sender_timestamp FROM whatsmeow_privacy_tokens WHERE our_jid=$1 AND their_jid IN (
+			$2,
 			CASE
 				WHEN $2 LIKE '%@lid'
-					THEN (SELECT pn || '@s.whatsapp.net' FROM whatsmeow_lid_map WHERE lid=replace($2, '@lid', ''))
+					THEN replace($2, '@lid', '')
 				WHEN $2 LIKE '%@s.whatsapp.net'
-					THEN (SELECT lid || '@lid' FROM whatsmeow_lid_map WHERE pn=replace($2, '@s.whatsapp.net', ''))
-				ELSE $2
+					THEN replace($2, '@s.whatsapp.net', '')
+			END,
+			$3,
+			CASE
+				WHEN $3 LIKE '%@lid'
+					THEN replace($3, '@lid', '')
+				WHEN $3 LIKE '%@s.whatsapp.net'
+					THEN replace($3, '@s.whatsapp.net', '')
 			END
-		))
+		)
 		ORDER BY timestamp DESC LIMIT 1
 	`
 	deleteExpiredPrivacyTokens = `
@@ -1294,9 +1301,26 @@ func (s *SQLStore) PutPrivacyTokens(ctx context.Context, tokens ...store.Privacy
 func (s *SQLStore) GetPrivacyToken(ctx context.Context, user types.JID) (*store.PrivacyToken, error) {
 	var token store.PrivacyToken
 	token.User = user.ToNonAD()
+	altUser := ""
+	switch token.User.Server {
+	case types.HiddenUserServer:
+		pn, err := s.Container.LIDMap.GetPNForLID(ctx, token.User)
+		if err != nil {
+			return nil, err
+		} else if !pn.IsEmpty() {
+			altUser = pn.ToNonAD().String()
+		}
+	case types.DefaultUserServer:
+		lid, err := s.Container.LIDMap.GetLIDForPN(ctx, token.User)
+		if err != nil {
+			return nil, err
+		} else if !lid.IsEmpty() {
+			altUser = lid.ToNonAD().String()
+		}
+	}
 	var ts int64
 	var senderTS sql.NullInt64
-	err := s.db.QueryRow(ctx, getPrivacyToken, s.JID, token.User).Scan(&token.Token, &ts, &senderTS)
+	err := s.db.QueryRow(ctx, getPrivacyToken, s.JID, token.User.String(), altUser).Scan(&token.Token, &ts, &senderTS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	} else if err != nil {
