@@ -1245,7 +1245,13 @@ const (
 		WHERE EXCLUDED.timestamp >= whatsmeow_privacy_tokens.timestamp
 	`
 	getPrivacyToken = `
-		SELECT token, timestamp, sender_timestamp FROM whatsmeow_privacy_tokens WHERE our_jid=$1 AND their_jid IN (
+		SELECT token, timestamp, sender_timestamp FROM whatsmeow_privacy_tokens WHERE (
+			our_jid=$1 OR (
+				$4<>'' AND (
+					our_jid=$4 OR our_jid LIKE $5
+				)
+			)
+		) AND their_jid IN (
 			$2,
 			CASE
 				WHEN $2 LIKE '%@lid'
@@ -1261,7 +1267,7 @@ const (
 					THEN replace($3, '@s.whatsapp.net', '')
 			END
 		)
-		ORDER BY timestamp DESC LIMIT 1
+		ORDER BY CASE WHEN our_jid=$1 THEN 0 ELSE 1 END, timestamp DESC LIMIT 1
 	`
 	deleteExpiredPrivacyTokens = `
 		DELETE FROM whatsmeow_privacy_tokens
@@ -1318,9 +1324,15 @@ func (s *SQLStore) GetPrivacyToken(ctx context.Context, user types.JID) (*store.
 			altUser = lid.ToNonAD().String()
 		}
 	}
+	accountJID := ""
+	deviceJIDPattern := ""
+	if ownJID, err := types.ParseJID(s.JID); err == nil && ownJID.User != "" && ownJID.Server != "" {
+		accountJID = ownJID.ToNonAD().String()
+		deviceJIDPattern = fmt.Sprintf("%s:%%@%s", ownJID.User, ownJID.Server)
+	}
 	var ts int64
 	var senderTS sql.NullInt64
-	err := s.db.QueryRow(ctx, getPrivacyToken, s.JID, token.User.String(), altUser).Scan(&token.Token, &ts, &senderTS)
+	err := s.db.QueryRow(ctx, getPrivacyToken, s.JID, token.User.String(), altUser, accountJID, deviceJIDPattern).Scan(&token.Token, &ts, &senderTS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	} else if err != nil {

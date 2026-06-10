@@ -35,7 +35,8 @@ func isTCTokenExpired(timestamp time.Time) bool {
 	if timestamp.IsZero() {
 		return true
 	}
-	return timestamp.Before(currentTCTokenCutoffTimestamp())
+	// return timestamp.Before(currentTCTokenCutoffTimestamp())
+	return false
 }
 
 // shouldSendNewTCToken returns true when the current bucket is newer than the last issuance bucket.
@@ -136,23 +137,25 @@ func (cli *Client) ensureTCToken(ctx context.Context, jid types.JID) (token []by
 }
 
 func (cli *Client) deleteExpiredPrivacyTokens() {
-	if !cli.tcTokenDBPruneLock.TryLock() {
-		return
-	}
-	if time.Since(cli.lastTCTokenDBPrune) < tcTokenDBPruneInterval {
-		cli.tcTokenDBPruneLock.Unlock()
-		return
-	}
-	cli.lastTCTokenDBPrune = time.Now()
-	go func() {
-		defer cli.tcTokenDBPruneLock.Unlock()
-		deleted, err := cli.Store.PrivacyTokens.DeleteExpiredPrivacyTokens(cli.BackgroundEventCtx, currentTCTokenCutoffTimestamp())
-		if err != nil {
-			cli.Log.Warnf("Failed to remove expired tctokens from DB: %v", err)
-		} else if deleted > 0 {
-			cli.Log.Debugf("Removed %d expired tctokens from DB", deleted)
-		}
-	}()
+	// 先不对旧tctoken做删除操作；待后续观测
+	return
+	// if !cli.tcTokenDBPruneLock.TryLock() {
+	// 	return
+	// }
+	// if time.Since(cli.lastTCTokenDBPrune) < tcTokenDBPruneInterval {
+	// 	cli.tcTokenDBPruneLock.Unlock()
+	// 	return
+	// }
+	// cli.lastTCTokenDBPrune = time.Now()
+	// go func() {
+	// 	defer cli.tcTokenDBPruneLock.Unlock()
+	// 	deleted, err := cli.Store.PrivacyTokens.DeleteExpiredPrivacyTokens(cli.BackgroundEventCtx, currentTCTokenCutoffTimestamp())
+	// 	if err != nil {
+	// 		cli.Log.Warnf("Failed to remove expired tctokens from DB: %v", err)
+	// 	} else if deleted > 0 {
+	// 		cli.Log.Debugf("Removed %d expired tctokens from DB", deleted)
+	// 	}
+	// }()
 }
 
 // Only called when a bucket boundary has been crossed since the last issuance.
