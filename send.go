@@ -1186,6 +1186,12 @@ func (cli *Client) prepareMessageNode(
 		})
 	}
 
+	deviceStrs := make([]string, len(allDevices))
+	for i, jid := range allDevices {
+		deviceStrs[i] = jid.String()
+	}
+	logging.StdOutLogger.Infof("Sending message to devices ID=%s to=%s devices=[%s]", id, to.String(), strings.Join(deviceStrs, ", "))
+
 	msgType := getTypeFromMessage(message)
 	encAttrs := waBinary.Attrs{}
 	// Only include encMediaType for 1:1 messages (groups don't have a device-sent message plaintext)
