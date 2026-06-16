@@ -29,6 +29,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waMsgTransport"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"go.mau.fi/whatsmeow/util/logging"
 )
 
 // Number of sent messages to cache in memory for handling retry receipts.
@@ -481,14 +482,19 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 	cli.messageRetriesLock.Unlock()
 	if retryCount >= 5 {
 		cli.Log.Warnf("Not sending any more retry receipts for %s", id)
+		logging.StdOutLogger.Warnf("Not sending any more retry receipts for %s", id)
 		return
 	}
 	if retryCount == 1 {
-		if cli.SynchronousAck {
-			cli.immediateRequestMessageFromPhone(ctx, info)
-		} else {
-			go cli.delayedRequestMessageFromPhone(info)
+		if !cli.ensureServerPreKeys(ctx) {
+			logging.StdOutLogger.Warnf("Prekey health check failed before retry receipt for %s, continuing with retry flow", id)
 		}
+	}
+
+	if cli.SynchronousAck {
+		cli.immediateRequestMessageFromPhone(ctx, info)
+	} else {
+		go cli.delayedRequestMessageFromPhone(info)
 	}
 
 	var registrationIDBytes [4]byte
@@ -512,10 +518,12 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 		},
 	}
 	if retryCount > 1 || forceIncludeIdentity {
-		if key, err := cli.Store.PreKeys.GenOnePreKey(ctx); err != nil {
+		if key, err := cli.Store.PreKeys.GenOneRetryPreKey(ctx); err != nil {
 			cli.Log.Errorf("Failed to get prekey for retry receipt: %v", err)
+			logging.StdOutLogger.Errorf("Failed to get prekey for retry receipt: %v", err)
 		} else if deviceIdentity, err := proto.Marshal(cli.Store.Account); err != nil {
 			cli.Log.Errorf("Failed to marshal account info: %v", err)
+			logging.StdOutLogger.Errorf("Failed to marshal account info: %v", err)
 			return
 		} else {
 			payload.Content = append(payload.GetChildren(), waBinary.Node{
@@ -528,10 +536,13 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 					{Tag: "device-identity", Content: deviceIdentity},
 				},
 			})
+			if retryCount == 2 {
+				logging.StdOutLogger.Infof("retry Node: %s", payload.XMLString())
+			}
 		}
 	}
 	err := cli.sendNode(ctx, payload)
 	if err != nil {
-		cli.Log.Errorf("Failed to send retry receipt for %s: %v", id, err)
+		logging.StdOutLogger.Errorf("Failed to send retry receipt for %s: %v", id, err)
 	}
 }
