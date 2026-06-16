@@ -313,8 +313,8 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
 	unavailableNode, ok := node.GetOptionalChildByTag("unavailable")
 	if ok && len(node.GetChildrenByTag("enc")) == 0 {
 		uType := events.UnavailableType(unavailableNode.AttrGetter().String("type"))
-		cli.Log.Warnf("Unavailable message %s from %s (type: %q)  node %s", info.ID, info.SourceString(), uType, node.XMLString())
-		logging.StdOutLogger.Errorf("jid %s Unavailable message %s from %s (type: %q)  node %s", cli.Store.GetJID(), info.ID, info.SourceString(), uType, node.XMLString())
+		cli.Log.Warnf("Unavailable message %s from %s (type: %q)  node %s", info.ID, info.SourceString(), uType, node.String())
+		logging.StdOutLogger.Errorf("jid %s Unavailable message %s from %s (type: %q)  node %s", cli.Store.GetJID(), info.ID, info.SourceString(), uType, node.String())
 		cli.backgroundIfAsyncAck(func() {
 			if uType != events.UnavailableTypeViewOnce {
 				cli.sendRetryReceipt(ctx, node, info, false)

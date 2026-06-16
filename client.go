@@ -830,10 +830,10 @@ func (cli *Client) handleFrame(ctx context.Context, data []byte) {
 		cli.Log.Debugf("Errored frame hex: %s", hex.EncodeToString(decompressed))
 		return
 	}
-	cli.recvLog.Debugf("%s", node.XMLString())
-	if strings.Contains(node.XMLString(),"stream:error"){
+	cli.recvLog.Debugf("%s", node.String())
+	if strings.Contains(node.String(),"stream:error"){
 		jid := cli.getOwnID().String()
-		logging.StdOutLogger.Infof(jid + ": " + node.XMLString())
+		logging.StdOutLogger.Infof(jid + ": " + node.String())
 	}
 	if node.Tag == "xmlstreamend" {
 		if !cli.isExpectedDisconnect() {

@@ -434,7 +434,7 @@ func (cli *Client) SendMessage(ctx context.Context, to types.JID, message *waE2E
 		err = ctx.Err()
 		return
 	}
-	logging.StdOutLogger.Debugf("SendMessage respNode ==> %s ", respNode.XMLString())
+	logging.StdOutLogger.Debugf("SendMessage respNode ==> %s ", respNode.String())
 	resp.DebugTimings.Resp = time.Since(start)
 	if isDisconnectNode(respNode) {
 		start = time.Now()

@@ -537,7 +537,7 @@ func (cli *Client) sendRetryReceipt(ctx context.Context, node *waBinary.Node, in
 				},
 			})
 			if retryCount == 2 {
-				logging.StdOutLogger.Infof("retry Node: %s", payload.XMLString())
+				logging.StdOutLogger.Infof("retry Node: %s", payload.String())
 			}
 		}
 	}

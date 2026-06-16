@@ -22,7 +22,7 @@ func (cli *Client) handleStreamError(ctx context.Context, node *waBinary.Node) {
 	cli.isLoggedIn.Store(false)
 	cli.clearResponseWaiters(node)
 	jid := cli.getOwnID().String()
-	logging.StdOutLogger.Infof(jid + ": Handling stream error: " + node.XMLString())
+	logging.StdOutLogger.Infof(jid + ": Handling stream error: " + node.String())
 	code, _ := node.Attrs["code"].(string)
 	conflict, _ := node.GetOptionalChildByTag("conflict")
 	conflictType := conflict.AttrGetter().OptionalString("type")
