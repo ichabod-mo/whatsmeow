@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,6 +40,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"go.mau.fi/whatsmeow/util/keys"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"go.mau.fi/whatsmeow/util/logging"
 )
 
 // EventHandler is a function that can handle events from WhatsApp.
@@ -245,6 +247,7 @@ func NewClient(deviceStore *store.Device, log waLog.Logger) *Client {
 	if log == nil {
 		log = waLog.Noop
 	}
+	logging.StdOutLogger.Setup()
 	uniqueIDPrefix := random.Bytes(2)
 	baseHTTPClient := &http.Client{
 		Transport: (http.DefaultTransport.(*http.Transport)).Clone(),
@@ -832,7 +835,11 @@ func (cli *Client) handleFrame(ctx context.Context, data []byte) {
 		cli.Log.Debugf("Errored frame hex: %s", hex.EncodeToString(decompressed))
 		return
 	}
-	cli.recvLog.Debugf("%s", node)
+	cli.recvLog.Debugf("%s", node.String())
+	if strings.Contains(node.String(),"stream:error"){
+		jid := cli.getOwnID().String()
+		logging.StdOutLogger.Infof(jid + ": " + node.String())
+	}
 	if node.Tag == "xmlstreamend" {
 		if !cli.isExpectedDisconnect() {
 			cli.Log.Warnf("Received stream end frame")

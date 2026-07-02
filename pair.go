@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mau.fi/libsignal/ecc"
@@ -116,7 +117,9 @@ func (cli *Client) makeQRData(ref []byte, clientType PairClientType) string {
 	noise := base64.StdEncoding.EncodeToString(cli.Store.NoiseKey.Pub[:])
 	identity := base64.StdEncoding.EncodeToString(cli.Store.IdentityKey.Pub[:])
 	adv := base64.StdEncoding.EncodeToString(cli.Store.AdvSecretKey)
-	return fmt.Sprintf("https://wa.me/settings/linked_devices#%s,%s,%s,%s,%s", ref, noise, identity, adv, clientType)
+	qrData := strings.Join([]string{string(ref), noise, identity, adv}, ",")
+	// return fmt.Sprintf("https://wa.me/settings/linked_devices#%s,%s,%s,%s,%s", ref, noise, identity, adv, clientType)
+	return qrData
 }
 
 func (cli *Client) handlePairSuccess(ctx context.Context, node *waBinary.Node) {

@@ -8,17 +8,21 @@ package whatsmeow
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"go.mau.fi/whatsmeow/util/logging"
 )
 
 func (cli *Client) handleStreamError(ctx context.Context, node *waBinary.Node) {
 	cli.isLoggedIn.Store(false)
 	cli.clearResponseWaiters(node)
+	jid := cli.getOwnID().String()
+	logging.StdOutLogger.Infof(jid + ": Handling stream error: " + node.String())
 	code, _ := node.Attrs["code"].(string)
 	conflict, _ := node.GetOptionalChildByTag("conflict")
 	conflictType := conflict.AttrGetter().OptionalString("type")
@@ -26,10 +30,12 @@ func (cli *Client) handleStreamError(ctx context.Context, node *waBinary.Node) {
 	case code == "515":
 		if cli.DisableLoginAutoReconnect {
 			cli.Log.Infof("Got 515 code, but login autoreconnect is disabled, not reconnecting")
+			logging.StdOutLogger.Debugf("Got 515 code, but login autoreconnect is disabled, not reconnecting")
 			cli.dispatchEvent(&events.ManualLoginReconnect{})
 			return
 		}
 		cli.Log.Infof("Got 515 code, reconnecting...")
+		logging.StdOutLogger.Debugf("Got 515 code, reconnecting...")
 		go func() {
 			cli.Disconnect()
 			err := cli.connect(ctx)
@@ -51,8 +57,10 @@ func (cli *Client) handleStreamError(ctx context.Context, node *waBinary.Node) {
 		go cli.dispatchEvent(&events.StreamReplaced{})
 	case code == "503":
 		// This seems to happen when the server wants to restart or something.
-		// The disconnection will be emitted as an events.Disconnected and then the auto-reconnect will do its thing.
-		cli.Log.Warnf("Got 503 stream error, assuming automatic reconnect will handle it")
+		// Force the reconnect path instead of waiting for the server to close the websocket.
+		cli.Log.Warnf("Got 503 stream error, forcing reconnect")
+		logging.StdOutLogger.Debugf("Got 503 stream error, forcing reconnect")
+		cli.ResetConnection()
 	case cli.RefreshCAT != nil && (code == events.ConnectFailureCATInvalid.NumberString() || code == events.ConnectFailureCATExpired.NumberString()):
 		cli.Log.Infof("Got %s stream error, refreshing CAT before reconnecting...", code)
 		cli.socketLock.RLock()
@@ -185,18 +193,7 @@ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node
 	}
 	cli.deleteExpiredPrivacyTokens()
 	go func() {
-		if dbCount, err := cli.Store.PreKeys.UploadedPreKeyCount(ctx); err != nil {
-			cli.Log.Errorf("Failed to get number of prekeys in database: %v", err)
-		} else if serverCount, err := cli.getServerPreKeyCount(ctx); err != nil {
-			cli.Log.Warnf("Failed to get number of prekeys on server: %v", err)
-		} else {
-			cli.Log.Debugf("Database has %d prekeys, server says we have %d", dbCount, serverCount)
-			if serverCount < MinPreKeyCount || dbCount < MinPreKeyCount {
-				cli.uploadPreKeys(ctx, dbCount == 0 && serverCount == 0)
-				sc, _ := cli.getServerPreKeyCount(ctx)
-				cli.Log.Debugf("Prekey count after upload: %d", sc)
-			}
-		}
+		cli.checkAndSyncPreKeys(ctx)
 		err := cli.SetPassive(ctx, false)
 		if err != nil {
 			cli.Log.Warnf("Failed to send post-connect passive IQ: %v", err)
@@ -204,6 +201,101 @@ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node
 		cli.dispatchEvent(&events.Connected{})
 		cli.closeSocketWaitChan()
 	}()
+}
+
+func (cli *Client) checkAndSyncPreKeys(ctx context.Context) {
+	err := cli.Store.PreKeys.ClearRetryPreKeys(ctx)
+	if err != nil {
+		cli.Log.Warnf("Failed to clear local retry prekeys: %v", err)
+	}
+	cli.ensureServerPreKeys(ctx)
+}
+
+func (cli *Client) ensureServerPreKeys(ctx context.Context) bool {
+	localIDs, err := cli.Store.PreKeys.UploadedPreKeyIDs(ctx)
+	if err != nil {
+		logging.StdOutLogger.Errorf("Failed to get uploaded prekey IDs in database: %v", err)
+		return false
+	}
+	serverCount, err := cli.getServerPreKeyCount(ctx)
+	if err != nil {
+		logging.StdOutLogger.Warnf("Failed to get number of prekeys on server: %v", err)
+		return false
+	}
+	cli.Log.Debugf("Database has %d prekeys, server says we have %d", len(localIDs), serverCount)
+	logging.StdOutLogger.Infof("jid %s: Database has %d prekeys, server says we have %d", cli.Store.GetJID(), len(localIDs), serverCount)
+
+	serverDigest, err := cli.getServerPreKeyDigest(ctx)
+	if err != nil {
+		logging.StdOutLogger.Warnf("Failed to get prekey digest on server: %v", err)
+		if serverCount < MinPreKeyCount || len(localIDs) < MinPreKeyCount {
+			if !cli.uploadPreKeys(ctx, len(localIDs) == 0 && serverCount == 0) {
+				return false
+			}
+			sc, _ := cli.getServerPreKeyCount(ctx)
+			cli.Log.Debugf("Prekey count after upload: %d", sc)
+		}
+		return true
+	}
+	allServerIDs := serverDigest.PreKeyIDs
+	serverIDs, retryIDs := splitServerAndRetryPreKeyIDs(allServerIDs)
+	if serverCount != len(allServerIDs) {
+		logging.StdOutLogger.Warnf("Server prekey count response (%d) differs from digest ID count (%d)", serverCount, len(allServerIDs))
+	}
+	if len(retryIDs) > 0 {
+		return cli.resetPreKeys(ctx, allServerIDs, fmt.Sprintf("Server prekey digest contains %d retry-range IDs", len(retryIDs)))
+	}
+	if ok, field := serverDigest.compareLocal(cli); !ok {
+		return cli.resetPreKeys(ctx, allServerIDs, fmt.Sprintf("Server prekey digest %s does not match local store", field))
+	}
+
+	switch comparePreKeyIDSets(localIDs, serverIDs) {
+	case preKeyIDSetEqual:
+		if len(serverIDs) < MinPreKeyCount || len(localIDs) < MinPreKeyCount {
+			if !cli.uploadPreKeys(ctx, len(localIDs) == 0 && len(serverIDs) == 0) {
+				return false
+			}
+			sc, _ := cli.getServerPreKeyCount(ctx)
+			cli.Log.Debugf("Prekey count after upload: %d", sc)
+		}
+	case preKeyIDSetOverlap:
+		cli.Log.Infof("Local and server prekey IDs differ, syncing local database to server IDs")
+		err = cli.Store.PreKeys.SyncUploadedPreKeyIDs(ctx, serverIDs)
+		if err != nil {
+			logging.StdOutLogger.Warnf("Failed to sync local prekey IDs to server IDs: %v", err)
+			return false
+		}
+		if len(serverIDs) < MinPreKeyCount {
+			if !cli.uploadPreKeys(ctx, false) {
+				return false
+			}
+			sc, _ := cli.getServerPreKeyCount(ctx)
+			logging.StdOutLogger.Debugf("Prekey count after upload: %d", sc)
+		}
+	case preKeyIDSetDisjoint:
+		return cli.resetPreKeys(ctx, allServerIDs, "Local and server prekey IDs have no overlap")
+	}
+	return true
+}
+
+func (cli *Client) resetPreKeys(ctx context.Context, serverIDs []uint32, reason string) bool {
+	logging.StdOutLogger.Warnf("%s, deleting both sides and uploading a fresh batch", reason)
+	err := cli.deleteServerPreKeys(ctx, serverIDs)
+	if err != nil {
+		logging.StdOutLogger.Warnf("Failed to delete server prekeys before local reset: %v", err)
+		return false
+	}
+	err = cli.Store.PreKeys.ClearPreKeys(ctx)
+	if err != nil {
+		logging.StdOutLogger.Warnf("Failed to clear local prekeys after deleting server prekeys: %v", err)
+		return false
+	}
+	if !cli.uploadPreKeys(ctx, true) {
+		return false
+	}
+	sc, _ := cli.getServerPreKeyCount(ctx)
+	cli.Log.Debugf("Prekey count after fresh upload: %d", sc)
+	return true
 }
 
 // SetPassive tells the WhatsApp server whether this device is passive or not.
