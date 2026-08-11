@@ -323,7 +323,7 @@ func (cli *Client) SendMessage(ctx context.Context, to types.JID, message *waE2E
 		resp.DebugTimings.GetParticipants = time.Since(start)
 	} else if to.Server == types.HiddenUserServer {
 		ownID = cli.getOwnLID()
-	} 
+	}
 	// else if to.Server == types.DefaultUserServer && cli.Store.LIDMigrationTimestamp > 0 && !req.Peer {
 	// 	start := time.Now()
 	// 	var toLID types.JID
@@ -752,6 +752,7 @@ type nodeExtraParams struct {
 	metaNode        *waBinary.Node
 	additionalNodes *[]waBinary.Node
 	addressingMode  types.AddressingMode
+	peerRecipientPN types.JID
 }
 
 func (cli *Client) sendGroup(
