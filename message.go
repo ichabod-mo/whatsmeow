@@ -864,6 +864,7 @@ func (cli *Client) DownloadHistorySync(ctx context.Context, notif *waE2E.History
 
 	if historySync.GetSyncType() == waHistorySync.HistorySync_PUSH_NAME {
 		modifiedPushnames := make([]*waHistorySync.Pushname, 0, len(historySync.GetPushnames()))
+		seenPushnameIDs := make(map[string]struct{}, len(historySync.GetPushnames()))
 		for _, user := range historySync.GetPushnames() {
 			if user.GetPushname() == "-" {
 				continue
@@ -874,6 +875,10 @@ func (cli *Client) DownloadHistorySync(ctx context.Context, notif *waE2E.History
 					newID = pnJID.String()
 				}
 			}
+			if _, seen := seenPushnameIDs[newID]; seen {
+				continue
+			}
+			seenPushnameIDs[newID] = struct{}{}
 			modifiedPushnames = append(modifiedPushnames, &waHistorySync.Pushname{
 				ID:       &newID,
 				Pushname: user.Pushname,
