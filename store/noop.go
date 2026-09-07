@@ -101,6 +101,10 @@ func (n *NoopStore) GenOnePreKey(ctx context.Context) (*keys.PreKey, error) {
 	return nil, n.Error
 }
 
+func (n *NoopStore) GenOneRetryPreKey(ctx context.Context) (*keys.PreKey, error) {
+	return nil, n.Error
+}
+
 func (n *NoopStore) GetPreKey(ctx context.Context, id uint32) (*keys.PreKey, error) {
 	return nil, n.Error
 }
@@ -109,12 +113,28 @@ func (n *NoopStore) RemovePreKey(ctx context.Context, id uint32) error {
 	return n.Error
 }
 
-func (n *NoopStore) MarkPreKeysAsUploaded(ctx context.Context, upToID uint32) error {
+func (n *NoopStore) MarkPreKeysAsUploaded(ctx context.Context, ids []uint32) error {
 	return n.Error
+}
+
+func (n *NoopStore) UploadedPreKeyIDs(ctx context.Context) ([]uint32, error) {
+	return nil, n.Error
 }
 
 func (n *NoopStore) UploadedPreKeyCount(ctx context.Context) (int, error) {
 	return 0, n.Error
+}
+
+func (n *NoopStore) ClearPreKeys(ctx context.Context) error {
+	return n.Error
+}
+
+func (n *NoopStore) ClearRetryPreKeys(ctx context.Context) error {
+	return n.Error
+}
+
+func (n *NoopStore) SyncUploadedPreKeyIDs(ctx context.Context, ids []uint32) error {
+	return n.Error
 }
 
 func (n *NoopStore) PutSenderKey(ctx context.Context, group, user string, session []byte) error {
